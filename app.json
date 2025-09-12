@@ -23,6 +23,7 @@
       "package": "com.cupid2417.frechette_oil_navf"
     },
     "web": {
+      "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
