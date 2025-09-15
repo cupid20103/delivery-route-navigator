@@ -25,7 +25,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     package: "com.cupid2417.frechette_oil_navf",
   },
   web: {
-    bundler: "metro",
     output: "static",
     favicon: "./src/assets/images/favicon.png",
   },
