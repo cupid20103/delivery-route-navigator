@@ -42,6 +42,9 @@ const SignupScreen: React.FC = () => {
     <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
+      <View
+        style={[styles.header, { backgroundColor: theme.colors.primary }]}
+      />
       <Card style={styles.card}>
         <Card.Content>
           <Text
@@ -102,11 +105,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: "center",
-    paddingHorizontal: 24,
+  },
+  header: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    width: "100%",
+    height: 176,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   card: {
-    borderRadius: 16,
+    marginHorizontal: 24,
     paddingVertical: 24,
+    borderRadius: 16,
   },
   title: {
     fontWeight: "700",

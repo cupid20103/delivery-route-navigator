@@ -46,6 +46,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     [
+      "expo-image-picker",
+      {
+        photosPermission:
+          "The app accesses your photos to let you share them with your friends.",
+      },
+    ],
+    [
       "expo-secure-store",
       {
         configureAndroidBackup: true,
@@ -54,10 +61,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     [
-      "expo-image-picker",
+      "expo-location",
       {
-        photosPermission:
-          "The app accesses your photos to let you share them with your friends.",
+        locationAlwaysAndWhenInUsePermission:
+          "Allow $(PRODUCT_NAME) to use your location.",
+      },
+    ],
+    [
+      "@rnmapbox/maps",
+      {
+        RNMapboxMapsDownloadToken: process.env.MAPBOX_DOWNLOADS_TOKEN,
       },
     ],
   ],
@@ -70,6 +83,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     eas: {
       projectId: "4a9aec04-17a9-425b-9dee-ac3f7113c71d",
     },
+    APP_ENV: process.env.APP_ENV,
+    mapboxPublicToken: process.env.MAPBOX_PUBLIC_TOKEN,
   },
   owner: "cupid2417",
 });

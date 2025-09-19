@@ -19,13 +19,7 @@ const Wrapper: React.FC<WrapperProps> = ({
   const theme = useTheme();
 
   return (
-    <SafeAreaView
-      style={[
-        styles.safeArea,
-        { backgroundColor: theme.colors.primary },
-        style,
-      ]}
-    >
+    <SafeAreaView style={[styles.safeArea, style]}>
       {scrollable ? (
         <ScrollView
           style={[

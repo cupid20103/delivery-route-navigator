@@ -37,6 +37,9 @@ const LoginScreen: React.FC = () => {
     <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
+      <View
+        style={[styles.header, { backgroundColor: theme.colors.primary }]}
+      />
       <Card style={styles.card}>
         <Card.Content>
           <Text
@@ -76,10 +79,7 @@ const LoginScreen: React.FC = () => {
             </Button>
             <Button
               icon="arrow-right"
-              contentStyle={{
-                flexDirection: "row-reverse",
-                alignItems: "center",
-              }}
+              contentStyle={styles.arrowButton}
               onPress={() => router.push("/(auth)/signup")}
             >
               Signup
@@ -95,11 +95,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: "center",
-    paddingHorizontal: 24,
+  },
+  header: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    width: "100%",
+    height: 176,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   card: {
-    borderRadius: 16,
+    marginHorizontal: 24,
     paddingVertical: 24,
+    borderRadius: 16,
   },
   title: {
     fontWeight: "700",
@@ -115,6 +125,10 @@ const styles = StyleSheet.create({
   },
   actionGroup: {
     marginTop: 16,
+  },
+  arrowButton: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
   },
 });
 
