@@ -1,7 +1,7 @@
 import MapboxGL from "@rnmapbox/maps";
 import Constants from "expo-constants";
 import * as Location from "expo-location";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Keyboard, ScrollView, StyleSheet, View } from "react-native";
 import {
   Button,
@@ -13,6 +13,9 @@ import {
   TextInput,
   useTheme,
 } from "react-native-paper";
+
+import CurrentMarker from "@/components/ui/CurrentMarker";
+import StopMarker from "@/components/ui/StopMarker";
 
 const MAPBOX_PUBLIC_TOKEN = Constants.expoConfig?.extra?.mapboxPublicToken;
 
@@ -39,6 +42,8 @@ const MapScreen: React.FC = () => {
   const [selectedStyle, setSelectedStyle] = useState(MAP_STYLES[0].url);
   const [currentPosition, setCurrentPosition] = useState<LngLat | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
+  const [routeGeoJSON, setRouteGeoJSON] =
+    useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
   const [stopInput, setStopInput] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
   const [stopSuggestions, setStopSuggestions] = useState<any[]>([]);
@@ -80,7 +85,7 @@ const MapScreen: React.FC = () => {
         const res = await fetch(
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
             stopInput
-          )}.json?access_token=${MAPBOX_PUBLIC_TOKEN}&autocomplete=true&limit=10`
+          )}.json?access_token=${MAPBOX_PUBLIC_TOKEN}&autocomplete=true&limit=15`
         );
 
         const data = await res.json();
@@ -91,6 +96,33 @@ const MapScreen: React.FC = () => {
       }
     })();
   }, [stopInput]);
+
+  useEffect(() => {
+    (async () => {
+      if (!currentPosition || routes.length === 0) {
+        setRouteGeoJSON(null);
+
+        return;
+      }
+
+      const coords = [currentPosition, ...routes.map((r) => r.coords)]
+        .map((c) => `${c[0]},${c[1]}`)
+        .join(";");
+
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${MAPBOX_PUBLIC_TOKEN}`
+        );
+
+        const data = await res.json();
+
+        if (data.routes && data.routes.length > 0)
+          setRouteGeoJSON(data.routes[0].geometry);
+      } catch (err) {
+        console.error("Directions error:", err);
+      }
+    })();
+  }, [currentPosition, routes]);
 
   const handleSelectStop = (item: any) => {
     const coords: LngLat = item.center;
@@ -125,22 +157,6 @@ const MapScreen: React.FC = () => {
     }
   };
 
-  const routeLines = useMemo(() => {
-    if (!currentPosition || routes.length === 0) return [];
-
-    return routes.map((r) => ({
-      id: `line-${r.id}`,
-      geojson: {
-        type: "Feature",
-        geometry: {
-          type: "LineString",
-          coordinates: [currentPosition, r.coords],
-        },
-        properties: {},
-      } as GeoJSON.Feature<GeoJSON.LineString>,
-    }));
-  }, [currentPosition, routes]);
-
   return (
     <View style={styles.container}>
       <MapboxGL.MapView
@@ -153,54 +169,47 @@ const MapScreen: React.FC = () => {
         style={styles.map}
       >
         {currentPosition && (
-          <MapboxGL.Camera
-            ref={cameraRef}
-            zoomLevel={17}
-            centerCoordinate={currentPosition}
-            animationMode="flyTo"
-            animationDuration={1000}
-          />
-        )}
-        {currentPosition && (
-          <MapboxGL.PointAnnotation
-            key="current-position"
-            id="current-position"
-            coordinate={currentPosition}
-          >
-            <View
-              style={[
-                styles.currentMarker,
-                { backgroundColor: theme.colors.primary },
-              ]}
+          <>
+            <MapboxGL.Camera
+              ref={cameraRef}
+              zoomLevel={17}
+              centerCoordinate={currentPosition}
+              animationMode="flyTo"
+              animationDuration={1000}
             />
-          </MapboxGL.PointAnnotation>
+            <MapboxGL.MarkerView
+              key="me"
+              id="me"
+              coordinate={currentPosition}
+              allowOverlap
+            >
+              <CurrentMarker color={theme.colors.primary} />
+            </MapboxGL.MarkerView>
+          </>
         )}
-        {routes.map((route) => (
-          <MapboxGL.PointAnnotation
+        {routes.map((route, idx) => (
+          <MapboxGL.MarkerView
             key={route.id}
             id={route.id}
             coordinate={route.coords}
+            allowOverlap
           >
-            <View
-              style={[
-                styles.routeMarker,
-                { backgroundColor: theme.colors.secondary },
-              ]}
-            />
-          </MapboxGL.PointAnnotation>
+            <StopMarker index={idx + 1} color={theme.colors.secondary} />
+          </MapboxGL.MarkerView>
         ))}
-        {routeLines.map((line) => (
-          <MapboxGL.ShapeSource id={line.id} key={line.id} shape={line.geojson}>
+        {routeGeoJSON && (
+          <MapboxGL.ShapeSource id="street-route" shape={routeGeoJSON}>
             <MapboxGL.LineLayer
-              id={`${line.id}-layer`}
+              id="street-route-line"
               style={{
-                lineWidth: 4,
+                lineWidth: 5,
                 lineColor: theme.colors.secondary,
-                lineOpacity: 0.9,
+                lineJoin: "round",
+                lineCap: "round",
               }}
             />
           </MapboxGL.ShapeSource>
-        ))}
+        )}
       </MapboxGL.MapView>
       <View
         style={[
@@ -368,6 +377,12 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     borderWidth: 2,
     borderColor: "white",
+  },
+  pulseCircle: {
+    position: "absolute",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
   stopInputBar: {
     position: "absolute",
