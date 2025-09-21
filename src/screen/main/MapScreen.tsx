@@ -29,6 +29,15 @@ type Route = {
   coords: LngLat;
 };
 
+type OptimizationTrip = {
+  geometry: GeoJSON.LineString;
+};
+
+type OptimizationResponse = {
+  code: string;
+  trips: OptimizationTrip[];
+};
+
 const MAP_STYLES = [
   { id: "streets", name: "Streets", url: "mapbox://styles/mapbox/streets-v12" },
   {
@@ -38,14 +47,32 @@ const MAP_STYLES = [
   },
 ];
 
+const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+const haversineMeters = (a: LngLat, b: LngLat) => {
+  const R = 6371000;
+  const dLat = toRad(b[1] - a[1]);
+  const dLng = toRad(b[0] - a[0]);
+  const lat1 = toRad(a[1]);
+  const lat2 = toRad(b[1]);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
 const MapScreen: React.FC = () => {
   const [selectedStyle, setSelectedStyle] = useState(MAP_STYLES[0].url);
   const [currentPosition, setCurrentPosition] = useState<LngLat | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routeGeoJSON, setRouteGeoJSON] =
     useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
+  const [optimizingMode, setOptimizingMode] = useState<"close" | "far" | null>(
+    null
+  );
   const [stopInput, setStopInput] = useState("");
-  const [inputFocused, setInputFocused] = useState(false);
+  const [showPanel, setShowPanel] = useState(false);
   const [stopSuggestions, setStopSuggestions] = useState<any[]>([]);
   const [layerDialogVisible, setLayerDialogVisible] = useState(false);
 
@@ -53,9 +80,6 @@ const MapScreen: React.FC = () => {
 
   const cameraRef = useRef<MapboxGL.Camera>(null);
   const inputRef = useRef<any>(null);
-
-  const showRoutePanel = inputFocused || stopInput.trim().length > 0;
-  const isSearching = stopInput.trim().length >= 3;
 
   useEffect(() => {
     (async () => {
@@ -90,39 +114,61 @@ const MapScreen: React.FC = () => {
 
         const data = await res.json();
 
-        setStopSuggestions(data.features || []);
+        const filtered = (data.features || []).filter(
+          (item: any) =>
+            !routes.some(
+              (r) =>
+                r.coords[0] === item.center[0] && r.coords[1] === item.center[1]
+            )
+        );
+
+        setStopSuggestions(filtered);
       } catch (err) {
         console.error("Geocoding error:", err);
       }
     })();
   }, [stopInput]);
 
-  useEffect(() => {
-    (async () => {
-      if (!currentPosition || routes.length === 0) {
-        setRouteGeoJSON(null);
+  const optimizeRoute = async (mode: "close" | "far") => {
+    if (!currentPosition || routes.length === 0) return;
 
-        return;
+    setOptimizingMode(mode);
+
+    const sorted = [...routes].sort((a, b) => {
+      const distA = haversineMeters(currentPosition, a.coords);
+      const distB = haversineMeters(currentPosition, b.coords);
+
+      return mode === "close" ? distA - distB : distB - distA;
+    });
+
+    const coords = [currentPosition, ...sorted.map((r) => r.coords)]
+      .map((c) => `${c[0]},${c[1]}`)
+      .join(";");
+
+    try {
+      const res = await fetch(
+        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coords}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=false&access_token=${MAPBOX_PUBLIC_TOKEN}`
+      );
+
+      const data: OptimizationResponse = await res.json();
+
+      if (data.trips && data.trips.length > 0) {
+        setRouteGeoJSON({
+          type: "Feature",
+          geometry: data.trips[0].geometry,
+          properties: {},
+        });
+
+        setRoutes(sorted);
+
+        handleClosePanel();
       }
-
-      const coords = [currentPosition, ...routes.map((r) => r.coords)]
-        .map((c) => `${c[0]},${c[1]}`)
-        .join(";");
-
-      try {
-        const res = await fetch(
-          `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${MAPBOX_PUBLIC_TOKEN}`
-        );
-
-        const data = await res.json();
-
-        if (data.routes && data.routes.length > 0)
-          setRouteGeoJSON(data.routes[0].geometry);
-      } catch (err) {
-        console.error("Directions error:", err);
-      }
-    })();
-  }, [currentPosition, routes]);
+    } catch (err) {
+      console.error("Optimization error:", err);
+    } finally {
+      setOptimizingMode(null);
+    }
+  };
 
   const handleSelectStop = (item: any) => {
     const coords: LngLat = item.center;
@@ -146,12 +192,12 @@ const MapScreen: React.FC = () => {
     setRoutes((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const handleClostPanel = () => {
-    if (inputFocused || stopInput.trim().length > 0) {
+  const handleClosePanel = () => {
+    if (showPanel) {
       Keyboard.dismiss();
       inputRef.current?.blur?.();
 
-      setInputFocused(false);
+      setShowPanel(false);
       setStopInput("");
       setStopSuggestions([]);
     }
@@ -165,7 +211,6 @@ const MapScreen: React.FC = () => {
         logoEnabled={false}
         attributionEnabled={false}
         scaleBarEnabled={false}
-        onPress={handleClostPanel}
         style={styles.map}
       >
         {currentPosition && (
@@ -178,7 +223,6 @@ const MapScreen: React.FC = () => {
               animationDuration={1000}
             />
             <MapboxGL.MarkerView
-              key="me"
               id="me"
               coordinate={currentPosition}
               allowOverlap
@@ -198,9 +242,9 @@ const MapScreen: React.FC = () => {
           </MapboxGL.MarkerView>
         ))}
         {routeGeoJSON && (
-          <MapboxGL.ShapeSource id="street-route" shape={routeGeoJSON}>
+          <MapboxGL.ShapeSource id="optimized-route" shape={routeGeoJSON}>
             <MapboxGL.LineLayer
-              id="street-route-line"
+              id="optimized-route-line"
               style={{
                 lineWidth: 5,
                 lineColor: theme.colors.secondary,
@@ -217,24 +261,25 @@ const MapScreen: React.FC = () => {
           { backgroundColor: theme.colors.background },
         ]}
       >
-        <IconButton icon="menu" size={24} onPress={() => {}} />
+        {showPanel ? (
+          <IconButton icon="chevron-up" size={24} onPress={handleClosePanel} />
+        ) : (
+          <IconButton icon="menu" size={24} onPress={() => {}} />
+        )}
+
         <TextInput
           ref={inputRef}
           value={stopInput}
           placeholder="Add a stop"
           onChangeText={setStopInput}
-          onFocus={() => setInputFocused(true)}
-          onBlur={() => {
-            if (stopInput.trim().length === 0) setInputFocused(false);
-          }}
+          onFocus={() => setShowPanel(true)}
           autoCorrect={false}
           autoCapitalize="none"
-          returnKeyType="search"
           style={styles.stopInputField}
         />
         <IconButton icon="camera" size={24} onPress={() => {}} />
       </View>
-      {showRoutePanel && (
+      {showPanel && (
         <View
           style={[
             styles.routePanel,
@@ -242,16 +287,7 @@ const MapScreen: React.FC = () => {
           ]}
         >
           <ScrollView keyboardShouldPersistTaps="handled">
-            <View style={styles.panelHeader}>
-              <Text variant="titleMedium">Route</Text>
-              <IconButton
-                icon="close"
-                onPress={handleClostPanel}
-                accessibilityLabel="Close panel"
-                hitSlop={8}
-                style={styles.closeIcon}
-              />
-            </View>
+            <Text variant="titleMedium">Route</Text>
             <List.Item
               title="Current location"
               description={
@@ -265,12 +301,12 @@ const MapScreen: React.FC = () => {
               onPress={() => {
                 if (currentPosition && cameraRef.current) {
                   cameraRef.current.flyTo(currentPosition, 1000);
-                  handleClostPanel();
+
+                  handleClosePanel();
                 }
               }}
-              style={styles.panelItem}
             />
-            {isSearching ? (
+            {stopInput.trim().length >= 3 ? (
               <View>
                 <Text variant="labelLarge" style={styles.panelTitle}>
                   Suggestions
@@ -282,7 +318,6 @@ const MapScreen: React.FC = () => {
                       title={item.place_name}
                       left={(props) => <List.Icon {...props} icon="magnify" />}
                       onPress={() => handleSelectStop(item)}
-                      style={styles.panelItem}
                     />
                   ))
                 ) : (
@@ -318,11 +353,31 @@ const MapScreen: React.FC = () => {
                       )}
                       onPress={() => {
                         cameraRef.current?.flyTo(route.coords, 1000);
-                        handleClostPanel();
+
+                        handleClosePanel();
                       }}
-                      style={styles.panelItem}
                     />
                   ))
+                )}
+                {routes.length > 0 && (
+                  <View style={styles.optimizeGroup}>
+                    <Button
+                      mode="contained"
+                      loading={optimizingMode === "close"}
+                      onPress={() => optimizeRoute("close")}
+                      style={styles.optimizeBtn}
+                    >
+                      Optimize (Close→Far)
+                    </Button>
+                    <Button
+                      mode="contained"
+                      loading={optimizingMode === "far"}
+                      onPress={() => optimizeRoute("far")}
+                      style={styles.optimizeBtn}
+                    >
+                      Optimize (Far→Close)
+                    </Button>
+                  </View>
                 )}
               </View>
             )}
@@ -410,18 +465,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     elevation: 4,
   },
-  panelHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
   panelTitle: {
     marginBottom: 6,
     opacity: 0.7,
   },
   panelHint: { opacity: 0.5 },
-  panelItem: { borderRadius: 8 },
   closeIcon: { margin: 0 },
+  optimizeGroup: {
+    flexDirection: "column",
+    marginTop: 24,
+    gap: 8,
+  },
+  optimizeBtn: {
+    flex: 1,
+  },
   modal: {
     flexDirection: "row",
     justifyContent: "center",
