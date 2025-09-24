@@ -3,12 +3,7 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { useTheme } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type WrapperProps = {
-  children: React.ReactNode;
-  scrollable?: boolean;
-  style?: object;
-  contentStyle?: object;
-};
+import { WrapperProps } from "@/types/component";
 
 const Wrapper: React.FC<WrapperProps> = ({
   children,

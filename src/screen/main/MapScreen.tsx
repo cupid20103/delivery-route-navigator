@@ -1,8 +1,10 @@
-import MapboxGL from "@rnmapbox/maps";
-import Constants from "expo-constants";
-import * as Location from "expo-location";
+import MapboxGL, { UserTrackingMode } from "@rnmapbox/maps";
 import React, { useEffect, useRef, useState } from "react";
-import { Keyboard, ScrollView, StyleSheet, View } from "react-native";
+import { Keyboard, StyleSheet, View } from "react-native";
+import DraggableFlatList, {
+  RenderItemParams,
+} from "react-native-draggable-flatlist";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import {
   Button,
   IconButton,
@@ -16,27 +18,16 @@ import {
 
 import CurrentMarker from "@/components/ui/CurrentMarker";
 import StopMarker from "@/components/ui/StopMarker";
-
-const MAPBOX_PUBLIC_TOKEN = Constants.expoConfig?.extra?.mapboxPublicToken;
+import { MAPBOX_PUBLIC_TOKEN } from "@/lib/constant";
+import {
+  fetchSegment,
+  formatDistance,
+  formatDuration,
+  haversineMeters,
+} from "@/lib/helper";
+import { LngLat, OptimizationResponse, Route } from "@/types/screen";
 
 MapboxGL.setAccessToken(MAPBOX_PUBLIC_TOKEN);
-
-type LngLat = [number, number];
-
-type Route = {
-  id: string;
-  name: string;
-  coords: LngLat;
-};
-
-type OptimizationTrip = {
-  geometry: GeoJSON.LineString;
-};
-
-type OptimizationResponse = {
-  code: string;
-  trips: OptimizationTrip[];
-};
 
 const MAP_STYLES = [
   { id: "streets", name: "Streets", url: "mapbox://styles/mapbox/streets-v12" },
@@ -47,24 +38,10 @@ const MAP_STYLES = [
   },
 ];
 
-const toRad = (deg: number) => (deg * Math.PI) / 180;
-
-const haversineMeters = (a: LngLat, b: LngLat) => {
-  const R = 6371000;
-  const dLat = toRad(b[1] - a[1]);
-  const dLng = toRad(b[0] - a[0]);
-  const lat1 = toRad(a[1]);
-  const lat2 = toRad(b[1]);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-
-  return 2 * R * Math.asin(Math.sqrt(h));
-};
-
 const MapScreen: React.FC = () => {
   const [selectedStyle, setSelectedStyle] = useState(MAP_STYLES[0].url);
   const [currentPosition, setCurrentPosition] = useState<LngLat | null>(null);
+  const [currentAddress, setCurrentAddress] = useState<string | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routeGeoJSON, setRouteGeoJSON] =
     useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
@@ -83,22 +60,6 @@ const MapScreen: React.FC = () => {
 
   useEffect(() => {
     (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-
-      if (status !== "granted") {
-        alert("Permission to access location was denied");
-
-        return;
-      }
-
-      const loc = await Location.getCurrentPositionAsync({});
-
-      setCurrentPosition([loc.coords.longitude, loc.coords.latitude]);
-    })();
-  }, []);
-
-  useEffect(() => {
-    (async () => {
       if (stopInput.length < 3) {
         setStopSuggestions([]);
 
@@ -106,51 +67,96 @@ const MapScreen: React.FC = () => {
       }
 
       try {
-        const res = await fetch(
+        const response = await fetch(
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
             stopInput
           )}.json?access_token=${MAPBOX_PUBLIC_TOKEN}&autocomplete=true&limit=15`
         );
 
-        const data = await res.json();
+        const data = await response.json();
 
-        const filtered = (data.features || []).filter(
+        const uniqueSuggestions = (data.features || []).filter(
           (item: any) =>
             !routes.some(
-              (r) =>
-                r.coords[0] === item.center[0] && r.coords[1] === item.center[1]
+              (stop) =>
+                stop.coords[0] === item.center[0] &&
+                stop.coords[1] === item.center[1]
             )
         );
 
-        setStopSuggestions(filtered);
+        setStopSuggestions(uniqueSuggestions);
       } catch (err) {
         console.error("Geocoding error:", err);
       }
     })();
   }, [stopInput]);
 
+  const reverseGeocode = async (coords: LngLat) => {
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${coords[0]},${coords[1]}.json?` +
+          new URLSearchParams({
+            access_token: MAPBOX_PUBLIC_TOKEN ?? "",
+            types: "address,poi",
+            limit: "1",
+            language: "en",
+          }).toString()
+      );
+
+      const result = await response.json();
+      const feature = result?.features?.[0];
+
+      if (!feature) return;
+
+      let label = feature.text as string;
+
+      const houseNumber = feature.address || feature.properties?.address;
+
+      if (feature.place_type?.includes("address") && houseNumber)
+        label = `${houseNumber} ${feature.text}`;
+
+      const context: Array<{ id: string; text: string }> =
+        feature.context ?? [];
+
+      const neighborhood = context.find((c) =>
+        c.id.startsWith("neighborhood")
+      )?.text;
+
+      const city =
+        context.find((c) => c.id.startsWith("place"))?.text ||
+        context.find((c) => c.id.startsWith("locality"))?.text;
+
+      if (neighborhood) label = `${label}, ${neighborhood}`;
+      else if (city) label = `${label}, ${city}`;
+
+      setCurrentAddress(label);
+    } catch (err) {
+      console.error("Reverse geocoding error:", err);
+    }
+  };
+
   const optimizeRoute = async (mode: "close" | "far") => {
     if (!currentPosition || routes.length === 0) return;
 
     setOptimizingMode(mode);
 
-    const sorted = [...routes].sort((a, b) => {
+    const sortedStops = [...routes].sort((a, b) => {
       const distA = haversineMeters(currentPosition, a.coords);
       const distB = haversineMeters(currentPosition, b.coords);
 
       return mode === "close" ? distA - distB : distB - distA;
     });
 
-    const coords = [currentPosition, ...sorted.map((r) => r.coords)]
+    const coordsQuery = [currentPosition, ...sortedStops.map((r) => r.coords)]
       .map((c) => `${c[0]},${c[1]}`)
       .join(";");
 
     try {
-      const res = await fetch(
-        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coords}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=false&access_token=${MAPBOX_PUBLIC_TOKEN}`
+      const response = await fetch(
+        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coordsQuery}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=true&access_token=${MAPBOX_PUBLIC_TOKEN}`
       );
 
-      const data: OptimizationResponse = await res.json();
+      const data: OptimizationResponse = await response.json();
 
       if (data.trips && data.trips.length > 0) {
         setRouteGeoJSON({
@@ -159,9 +165,23 @@ const MapScreen: React.FC = () => {
           properties: {},
         });
 
-        setRoutes(sorted);
+        const enrichedStops: Route[] = [];
 
-        handleClosePanel();
+        let previousPoint = currentPosition;
+
+        for (const stop of sortedStops) {
+          const segment = await fetchSegment(previousPoint, stop.coords);
+
+          enrichedStops.push({
+            ...stop,
+            distance: segment.distance,
+            duration: segment.duration,
+          });
+
+          previousPoint = stop.coords;
+        }
+
+        setRoutes(enrichedStops);
       }
     } catch (err) {
       console.error("Optimization error:", err);
@@ -170,15 +190,25 @@ const MapScreen: React.FC = () => {
     }
   };
 
-  const handleSelectStop = (item: any) => {
+  const handleSelectStop = async (item: any) => {
     const coords: LngLat = item.center;
 
-    setRoutes((prev) => [
-      ...prev,
+    let segment: { distance?: number; duration?: number } = {};
+
+    if (routes.length > 0) {
+      segment = await fetchSegment(routes[routes.length - 1].coords, coords);
+    } else if (currentPosition) {
+      segment = await fetchSegment(currentPosition, coords);
+    }
+
+    setRoutes((prevStops) => [
+      ...prevStops,
       {
         id: (item.id || Date.now().toString()) as string,
         name: item.place_name,
         coords,
+        distance: segment.distance,
+        duration: segment.duration,
       },
     ]);
 
@@ -189,14 +219,13 @@ const MapScreen: React.FC = () => {
   };
 
   const handleRemoveStop = (id: string) => {
-    setRoutes((prev) => prev.filter((r) => r.id !== id));
+    setRoutes((prevStops) => prevStops.filter((stop) => stop.id !== id));
   };
 
   const handleClosePanel = () => {
     if (showPanel) {
       Keyboard.dismiss();
       inputRef.current?.blur?.();
-
       setShowPanel(false);
       setStopInput("");
       setStopSuggestions([]);
@@ -204,7 +233,7 @@ const MapScreen: React.FC = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={styles.container}>
       <MapboxGL.MapView
         key={selectedStyle}
         styleURL={selectedStyle}
@@ -213,23 +242,29 @@ const MapScreen: React.FC = () => {
         scaleBarEnabled={false}
         style={styles.map}
       >
+        <MapboxGL.UserLocation
+          visible={false}
+          onUpdate={(pos) => {
+            if (!pos?.coords) return;
+            const next: LngLat = [pos.coords.longitude, pos.coords.latitude];
+            setCurrentPosition(next);
+            reverseGeocode(next);
+          }}
+        />
+        <MapboxGL.Camera
+          ref={cameraRef}
+          followUserLocation={true}
+          followUserMode={UserTrackingMode.Follow}
+          followZoomLevel={17}
+        />
         {currentPosition && (
-          <>
-            <MapboxGL.Camera
-              ref={cameraRef}
-              zoomLevel={17}
-              centerCoordinate={currentPosition}
-              animationMode="flyTo"
-              animationDuration={1000}
-            />
-            <MapboxGL.MarkerView
-              id="me"
-              coordinate={currentPosition}
-              allowOverlap
-            >
-              <CurrentMarker color={theme.colors.primary} />
-            </MapboxGL.MarkerView>
-          </>
+          <MapboxGL.MarkerView
+            id="me"
+            coordinate={currentPosition}
+            allowOverlap
+          >
+            <CurrentMarker color={theme.colors.primary} />
+          </MapboxGL.MarkerView>
         )}
         {routes.map((route, idx) => (
           <MapboxGL.MarkerView
@@ -266,7 +301,6 @@ const MapScreen: React.FC = () => {
         ) : (
           <IconButton icon="menu" size={24} onPress={() => {}} />
         )}
-
         <TextInput
           ref={inputRef}
           value={stopInput}
@@ -286,102 +320,108 @@ const MapScreen: React.FC = () => {
             { backgroundColor: theme.colors.background },
           ]}
         >
-          <ScrollView keyboardShouldPersistTaps="handled">
-            <Text variant="titleMedium">Route</Text>
-            <List.Item
-              title="Current location"
-              description={
-                currentPosition
-                  ? `${currentPosition[1].toFixed(
-                      5
-                    )}, ${currentPosition[0].toFixed(5)}`
-                  : "Locating…"
-              }
-              left={(props) => <List.Icon {...props} icon="crosshairs-gps" />}
-              onPress={() => {
-                if (currentPosition && cameraRef.current) {
-                  cameraRef.current.flyTo(currentPosition, 1000);
-
-                  handleClosePanel();
-                }
-              }}
-            />
-            {stopInput.trim().length >= 3 ? (
-              <View>
-                <Text variant="labelLarge" style={styles.panelTitle}>
-                  Suggestions
+          <Text variant="titleMedium">Route</Text>
+          <List.Item
+            title="Current location"
+            description={currentAddress || "Locating…"}
+            left={(props) => <List.Icon {...props} icon="crosshairs-gps" />}
+          />
+          {stopInput.trim().length >= 3 ? (
+            <View>
+              <Text variant="labelLarge" style={styles.panelTitle}>
+                Suggestions
+              </Text>
+              {stopSuggestions.length > 0 ? (
+                stopSuggestions.map((item: any) => (
+                  <List.Item
+                    key={item.id || item.place_name}
+                    title={item.place_name}
+                    left={(props) => <List.Icon {...props} icon="magnify" />}
+                    onPress={() => handleSelectStop(item)}
+                  />
+                ))
+              ) : (
+                <Text style={styles.panelHint}>No results yet…</Text>
+              )}
+            </View>
+          ) : (
+            <View>
+              <Text variant="labelLarge" style={styles.panelTitle}>
+                Selected stops
+              </Text>
+              {routes.length === 0 ? (
+                <Text style={styles.panelHint}>
+                  Add a stop to build your route.
                 </Text>
-                {stopSuggestions.length > 0 ? (
-                  stopSuggestions.map((item: any) => (
-                    <List.Item
-                      key={item.id || item.place_name}
-                      title={item.place_name}
-                      left={(props) => <List.Icon {...props} icon="magnify" />}
-                      onPress={() => handleSelectStop(item)}
-                    />
-                  ))
-                ) : (
-                  <Text style={styles.panelHint}>No results yet…</Text>
-                )}
-              </View>
-            ) : (
-              <View>
-                <Text variant="labelLarge" style={styles.panelTitle}>
-                  Selected stops
-                </Text>
-                {routes.length === 0 ? (
-                  <Text style={styles.panelHint}>
-                    Add a stop to build your route.
-                  </Text>
-                ) : (
-                  routes.map((route) => (
-                    <List.Item
-                      key={route.id}
-                      title={route.name}
-                      description={`${route.coords[1].toFixed(
-                        5
-                      )}, ${route.coords[0].toFixed(5)}`}
-                      left={(props) => (
-                        <List.Icon {...props} icon="map-marker" />
-                      )}
-                      right={() => (
-                        <IconButton
-                          icon="close"
-                          onPress={() => handleRemoveStop(route.id)}
-                          style={styles.closeIcon}
-                        />
-                      )}
-                      onPress={() => {
-                        cameraRef.current?.flyTo(route.coords, 1000);
-
-                        handleClosePanel();
-                      }}
-                    />
-                  ))
-                )}
-                {routes.length > 0 && (
-                  <View style={styles.optimizeGroup}>
-                    <Button
-                      mode="contained"
-                      loading={optimizingMode === "close"}
-                      onPress={() => optimizeRoute("close")}
-                      style={styles.optimizeBtn}
-                    >
-                      Optimize (Close→Far)
-                    </Button>
-                    <Button
-                      mode="contained"
-                      loading={optimizingMode === "far"}
-                      onPress={() => optimizeRoute("far")}
-                      style={styles.optimizeBtn}
-                    >
-                      Optimize (Far→Close)
-                    </Button>
-                  </View>
-                )}
-              </View>
-            )}
-          </ScrollView>
+              ) : (
+                <View style={{ maxHeight: 250 }}>
+                  <DraggableFlatList
+                    keyExtractor={(item) => item.id}
+                    data={routes}
+                    renderItem={({
+                      item,
+                      drag,
+                      isActive,
+                    }: RenderItemParams<Route>) => (
+                      <List.Item
+                        title={item.name}
+                        description={`${formatDuration(
+                          item.duration
+                        )} • ${formatDistance(item.distance)}`}
+                        left={(props) => (
+                          <List.Icon {...props} icon="map-marker" />
+                        )}
+                        right={() => (
+                          <View style={styles.panelAction}>
+                            <IconButton
+                              icon="close"
+                              onPress={() => handleRemoveStop(item.id)}
+                              style={styles.panelIcon}
+                            />
+                            <IconButton
+                              icon="drag"
+                              onLongPress={drag}
+                              style={styles.panelIcon}
+                            />
+                          </View>
+                        )}
+                        style={[
+                          styles.panelItem,
+                          {
+                            backgroundColor: isActive
+                              ? theme.colors.surfaceVariant
+                              : "transparent",
+                          },
+                        ]}
+                      />
+                    )}
+                    onDragEnd={({ data }) => setRoutes(data)}
+                    scrollEnabled={true}
+                  />
+                </View>
+              )}
+              {routes.length > 0 && (
+                <View style={styles.optimizeGroup}>
+                  <Button
+                    mode="contained"
+                    loading={optimizingMode === "close"}
+                    onPress={() => optimizeRoute("close")}
+                    style={styles.optimizeBtn}
+                  >
+                    Close→Far
+                  </Button>
+                  <Button
+                    mode="contained"
+                    loading={optimizingMode === "far"}
+                    onPress={() => optimizeRoute("far")}
+                    style={styles.optimizeBtn}
+                  >
+                    Far→Close
+                  </Button>
+                </View>
+              )}
+            </View>
+          )}
         </View>
       )}
       <Portal>
@@ -416,28 +456,22 @@ const MapScreen: React.FC = () => {
           }}
         />
       </View>
-    </View>
+    </GestureHandlerRootView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
-  routeMarker: {
-    padding: 8,
-    borderRadius: 50,
-  },
-  currentMarker: {
-    padding: 8,
-    borderRadius: 50,
-    borderWidth: 2,
-    borderColor: "white",
-  },
-  pulseCircle: {
+  routePanel: {
     position: "absolute",
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    top: 84,
+    left: 12,
+    right: 12,
+    bottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    elevation: 4,
   },
   stopInputBar: {
     position: "absolute",
@@ -455,30 +489,13 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 12,
   },
-  routePanel: {
-    position: "absolute",
-    top: 84,
-    left: 12,
-    right: 12,
-    bottom: 12,
-    padding: 12,
-    borderRadius: 12,
-    elevation: 4,
-  },
-  panelTitle: {
-    marginBottom: 6,
-    opacity: 0.7,
-  },
+  panelTitle: { marginBottom: 6, opacity: 0.7 },
   panelHint: { opacity: 0.5 },
-  closeIcon: { margin: 0 },
-  optimizeGroup: {
-    flexDirection: "column",
-    marginTop: 24,
-    gap: 8,
-  },
-  optimizeBtn: {
-    flex: 1,
-  },
+  panelItem: { borderRadius: 8 },
+  panelAction: { flexDirection: "row", alignItems: "center" },
+  panelIcon: { margin: 0 },
+  optimizeGroup: { flexDirection: "row", gap: 8, marginTop: 24 },
+  optimizeBtn: { flex: 1 },
   modal: {
     flexDirection: "row",
     justifyContent: "center",

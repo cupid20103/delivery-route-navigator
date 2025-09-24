@@ -1,7 +1,9 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
 
-const CurrentMarker: React.FC<{ color: string }> = ({ color }) => {
+import { CurrentMarkerProps } from "@/types/component";
+
+const CurrentMarker: React.FC<CurrentMarkerProps> = ({ color }) => {
   return (
     <View style={styles.meWrapper}>
       <View style={styles.meRing}>

@@ -1,9 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 
-type StopMarkerProps = {
-  index: number;
-  color: string;
-};
+import { StopMarkerProps } from "@/types/component";
 
 const StopMarker: React.FC<StopMarkerProps> = ({ index, color }) => {
   return (
