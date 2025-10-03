@@ -42,6 +42,7 @@ const MapScreen: React.FC = () => {
   const [selectedStyle, setSelectedStyle] = useState(MAP_STYLES[0].url);
   const [currentPosition, setCurrentPosition] = useState<LngLat | null>(null);
   const [currentAddress, setCurrentAddress] = useState<string | null>(null);
+  const [isFollowing, setIsFollowing] = useState(true);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routeGeoJSON, setRouteGeoJSON] =
     useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
@@ -95,12 +96,12 @@ const MapScreen: React.FC = () => {
     try {
       const response = await fetch(
         `https://api.mapbox.com/geocoding/v5/mapbox.places/${coords[0]},${coords[1]}.json?` +
-          new URLSearchParams({
-            access_token: MAPBOX_PUBLIC_TOKEN ?? "",
-            types: "address,poi",
-            limit: "1",
-            language: "en",
-          }).toString()
+        new URLSearchParams({
+          access_token: MAPBOX_PUBLIC_TOKEN ?? "",
+          types: "address,poi",
+          limit: "1",
+          language: "en",
+        }).toString()
       );
 
       const result = await response.json();
@@ -215,7 +216,7 @@ const MapScreen: React.FC = () => {
     setStopInput("");
     setStopSuggestions([]);
 
-    cameraRef.current?.flyTo(coords, 1000);
+    cameraRef.current?.flyTo(coords, 500);
   };
 
   const handleRemoveStop = (id: string) => {
@@ -246,6 +247,7 @@ const MapScreen: React.FC = () => {
           visible={false}
           onUpdate={(pos) => {
             if (!pos?.coords) return;
+
             const next: LngLat = [pos.coords.longitude, pos.coords.latitude];
             setCurrentPosition(next);
             reverseGeocode(next);
@@ -253,7 +255,7 @@ const MapScreen: React.FC = () => {
         />
         <MapboxGL.Camera
           ref={cameraRef}
-          followUserLocation={true}
+          followUserLocation={isFollowing}
           followUserMode={UserTrackingMode.Follow}
           followZoomLevel={17}
         />
@@ -299,7 +301,7 @@ const MapScreen: React.FC = () => {
         {showPanel ? (
           <IconButton icon="chevron-up" size={24} onPress={handleClosePanel} />
         ) : (
-          <IconButton icon="menu" size={24} onPress={() => {}} />
+          <IconButton icon="menu" size={24} onPress={() => { }} />
         )}
         <TextInput
           ref={inputRef}
@@ -311,7 +313,7 @@ const MapScreen: React.FC = () => {
           autoCapitalize="none"
           style={styles.stopInputField}
         />
-        <IconButton icon="camera" size={24} onPress={() => {}} />
+        <IconButton icon="camera" size={24} onPress={() => { }} />
       </View>
       {showPanel && (
         <View
@@ -451,8 +453,11 @@ const MapScreen: React.FC = () => {
           icon="crosshairs-gps"
           mode="contained"
           onPress={() => {
-            if (currentPosition && cameraRef.current)
-              cameraRef.current.flyTo(currentPosition, 1000);
+            if (currentPosition && cameraRef.current) {
+              setIsFollowing(false);
+              cameraRef.current.flyTo(currentPosition, 500);
+              setTimeout(() => setIsFollowing(true), 1000);
+            }
           }}
         />
       </View>
