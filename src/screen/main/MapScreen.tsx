@@ -20,12 +20,17 @@ import CurrentMarker from "@/components/ui/CurrentMarker";
 import StopMarker from "@/components/ui/StopMarker";
 import { MAPBOX_PUBLIC_TOKEN } from "@/lib/constant";
 import {
-  fetchSegment,
+  fetchRouteLeg,
   formatDistance,
   formatDuration,
   haversineMeters,
 } from "@/lib/helper";
-import { LngLat, OptimizationResponse, Route } from "@/types/screen";
+import {
+  LngLat,
+  OptimizationResponse,
+  Route,
+  StopStatus,
+} from "@/types/screen";
 
 MapboxGL.setAccessToken(MAPBOX_PUBLIC_TOKEN);
 
@@ -43,9 +48,11 @@ const MapScreen: React.FC = () => {
   const [currentPosition, setCurrentPosition] = useState<LngLat | null>(null);
   const [currentAddress, setCurrentAddress] = useState<string | null>(null);
   const [isFollowing, setIsFollowing] = useState(true);
+
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routeGeoJSON, setRouteGeoJSON] =
     useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
+
   const [optimizingMode, setOptimizingMode] = useState<"close" | "far" | null>(
     null
   );
@@ -53,6 +60,11 @@ const MapScreen: React.FC = () => {
   const [showPanel, setShowPanel] = useState(false);
   const [stopSuggestions, setStopSuggestions] = useState<any[]>([]);
   const [layerDialogVisible, setLayerDialogVisible] = useState(false);
+
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [nextLegGeo, setNextLegGeo] =
+    useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
 
   const theme = useTheme();
 
@@ -171,12 +183,15 @@ const MapScreen: React.FC = () => {
         let previousPoint = currentPosition;
 
         for (const stop of sortedStops) {
-          const segment = await fetchSegment(previousPoint, stop.coords);
+          const segment = await fetchRouteLeg(previousPoint, stop.coords, {
+            overview: "false",
+          });
 
           enrichedStops.push({
             ...stop,
             distance: segment.distance,
             duration: segment.duration,
+            status: "pending",
           });
 
           previousPoint = stop.coords;
@@ -197,9 +212,13 @@ const MapScreen: React.FC = () => {
     let segment: { distance?: number; duration?: number } = {};
 
     if (routes.length > 0) {
-      segment = await fetchSegment(routes[routes.length - 1].coords, coords);
+      segment = await fetchRouteLeg(routes[routes.length - 1].coords, coords, {
+        overview: "false",
+      });
     } else if (currentPosition) {
-      segment = await fetchSegment(currentPosition, coords);
+      segment = await fetchRouteLeg(currentPosition, coords, {
+        overview: "false",
+      });
     }
 
     setRoutes((prevStops) => [
@@ -221,6 +240,76 @@ const MapScreen: React.FC = () => {
 
   const handleRemoveStop = (id: string) => {
     setRoutes((prevStops) => prevStops.filter((stop) => stop.id !== id));
+  };
+
+  const getNextPendingIndex = (from = 0) =>
+    routes.findIndex(
+      (r, idx) => idx >= from && (r.status ?? "pending") === "pending"
+    );
+
+  const startTrip = async () => {
+    if (!currentPosition || routes.length === 0) return;
+
+    const idx = getNextPendingIndex(0);
+
+    if (idx === -1) return;
+
+    setIsNavigating(true);
+    setActiveIndex(idx);
+
+    cameraRef.current?.setCamera({ pitch: 60, animationDuration: 300 });
+
+    const { geometry } = await fetchRouteLeg(
+      currentPosition,
+      routes[idx].coords,
+      { overview: "full" }
+    );
+
+    if (geometry) {
+      setNextLegGeo({
+        type: "Feature",
+        geometry,
+        properties: {},
+      });
+    }
+  };
+
+  const completeCurrentStop = async (status: StopStatus) => {
+    if (activeIndex == null) return;
+
+    setRoutes((prev) =>
+      prev.map((s, i) => (i === activeIndex ? { ...s, status } : s))
+    );
+
+    const nextIdx = getNextPendingIndex(activeIndex + 1);
+
+    if (nextIdx === -1) {
+      setIsNavigating(false);
+      setActiveIndex(null);
+      setNextLegGeo(null);
+
+      cameraRef.current?.setCamera({ pitch: 0, animationDuration: 300 });
+
+      return;
+    }
+
+    setActiveIndex(nextIdx);
+
+    if (currentPosition) {
+      const { geometry } = await fetchRouteLeg(
+        currentPosition,
+        routes[nextIdx].coords,
+        { overview: "full" }
+      );
+
+      if (geometry) {
+        setNextLegGeo({
+          type: "Feature",
+          geometry,
+          properties: {},
+        });
+      }
+    }
   };
 
   const handleClosePanel = () => {
@@ -275,7 +364,9 @@ const MapScreen: React.FC = () => {
             coordinate={route.coords}
             allowOverlap
           >
-            <StopMarker index={idx + 1} color={theme.colors.secondary} />
+            <View style={{ opacity: route.status === "pending" ? 1 : 0.5 }}>
+              <StopMarker index={idx + 1} color={theme.colors.secondary} />
+            </View>
           </MapboxGL.MarkerView>
         ))}
         {routeGeoJSON && (
@@ -287,6 +378,21 @@ const MapScreen: React.FC = () => {
                 lineColor: theme.colors.secondary,
                 lineJoin: "round",
                 lineCap: "round",
+                lineOpacity: 0.5,
+              }}
+            />
+          </MapboxGL.ShapeSource>
+        )}
+        {nextLegGeo && (
+          <MapboxGL.ShapeSource id="next-leg" shape={nextLegGeo}>
+            <MapboxGL.LineLayer
+              id="next-leg-line"
+              style={{
+                lineWidth: 5,
+                lineColor: theme.colors.primary,
+                lineJoin: "round",
+                lineCap: "round",
+                lineDasharray: [1.5, 1.5],
               }}
             />
           </MapboxGL.ShapeSource>
@@ -371,7 +477,16 @@ const MapScreen: React.FC = () => {
                           item.duration
                         )} • ${formatDistance(item.distance)}`}
                         left={(props) => (
-                          <List.Icon {...props} icon="map-marker" />
+                          <List.Icon
+                            {...props}
+                            icon={
+                              item.status === "delivered"
+                                ? "check-circle"
+                                : item.status === "canceled"
+                                  ? "close-circle"
+                                  : "map-marker"
+                            }
+                          />
                         )}
                         right={() => (
                           <View style={styles.panelAction}>
@@ -422,6 +537,55 @@ const MapScreen: React.FC = () => {
                   </Button>
                 </View>
               )}
+            </View>
+          )}
+        </View>
+      )}
+      {routes.length > 0 && !showPanel && (
+        <View
+          style={[
+            styles.tripCard,
+            { backgroundColor: theme.colors.background },
+          ]}
+        >
+          <View style={styles.tripContent}>
+            <Text style={styles.tripTitle}>
+              {isNavigating && activeIndex != null
+                ? `${currentAddress ?? "Current"} → ${routes[activeIndex]?.name ?? "Next"
+                }`
+                : currentAddress ?? "Current location"}
+            </Text>
+            {isNavigating && activeIndex != null && (
+              <Text style={styles.tripLabel}>
+                {`${formatDuration(
+                  routes[activeIndex]?.duration
+                )} • ${formatDistance(routes[activeIndex]?.distance)}`}
+              </Text>
+            )}
+          </View>
+          {!isNavigating ? (
+            <Button
+              mode="contained"
+              onPress={startTrip}
+              disabled={
+                !currentPosition || routes.every((r) => r.status !== "pending")
+              }
+            >
+              Start Go
+            </Button>
+          ) : (
+            <View style={styles.tripActions}>
+              <Text>delivered</Text>
+              <IconButton
+                icon="check"
+                mode="contained"
+                onPress={() => completeCurrentStop("delivered")}
+              />
+              <IconButton
+                icon="close"
+                mode="contained"
+                onPress={() => completeCurrentStop("canceled")}
+              />
             </View>
           )}
         </View>
@@ -501,6 +665,23 @@ const styles = StyleSheet.create({
   panelIcon: { margin: 0 },
   optimizeGroup: { flexDirection: "row", gap: 8, marginTop: 24 },
   optimizeBtn: { flex: 1 },
+  tripCard: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    elevation: 6,
+  },
+  tripContent: { flex: 1 },
+  tripTitle: { fontWeight: "700", marginBottom: 4 },
+  tripLabel: { opacity: 0.5, fontSize: 12 },
+  tripActions: { flexDirection: "column", gap: 4 },
+  tripActionBtn: { flex: 1 },
   modal: {
     flexDirection: "row",
     justifyContent: "center",
@@ -511,8 +692,8 @@ const styles = StyleSheet.create({
   fabContainer: {
     position: "absolute",
     flexDirection: "column",
+    top: 100,
     right: 24,
-    bottom: 48,
   },
 });
 

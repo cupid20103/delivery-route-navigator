@@ -1,3 +1,5 @@
+export type StopStatus = "pending" | "delivered" | "canceled";
+
 export type LngLat = [number, number];
 
 export type Route = {
@@ -6,6 +8,7 @@ export type Route = {
   coords: LngLat;
   distance?: number;
   duration?: number;
+  status?: StopStatus;
 };
 
 export type DirectionsLeg = { distance: number; duration: number };

@@ -39,13 +39,18 @@ export const formatDuration = (seconds?: number) => {
   return `${hours} h ${remMins} min`;
 };
 
-export const fetchSegment = async (
+export const fetchRouteLeg = async (
   from: LngLat,
-  to: LngLat
-): Promise<{ distance?: number; duration?: number }> => {
+  to: LngLat,
+  options: { overview?: "false" | "full" } = { overview: "false" }
+): Promise<{
+  distance?: number;
+  duration?: number;
+  geometry?: GeoJSON.LineString;
+}> => {
   try {
     if (!MAPBOX_PUBLIC_TOKEN) {
-      console.warn("Missing MAPBOX_PUBLIC_TOKEN; fetchSegment skipped.");
+      console.warn("Missing MAPBOX_PUBLIC_TOKEN; fetchRouteLeg skipped.");
 
       return {};
     }
@@ -54,7 +59,7 @@ export const fetchSegment = async (
     const params = new URLSearchParams({
       access_token: MAPBOX_PUBLIC_TOKEN,
       geometries: "geojson",
-      overview: "false",
+      overview: options.overview ?? "false",
     });
 
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?${params.toString()}`;
@@ -66,12 +71,13 @@ export const fetchSegment = async (
 
     if (!firstRoute) return {};
 
-    const distance: number | undefined = firstRoute.distance;
-    const duration: number | undefined = firstRoute.duration;
-
-    return { distance, duration };
+    return {
+      distance: firstRoute.distance,
+      duration: firstRoute.duration,
+      geometry: firstRoute.geometry,
+    };
   } catch (error) {
-    console.error("Segment fetch error:", error);
+    console.error("fetchRouteLeg error:", error);
 
     return {};
   }
