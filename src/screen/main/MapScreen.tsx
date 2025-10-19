@@ -43,6 +43,8 @@ const MAP_STYLES = [
   },
 ];
 
+const DELIVERY_RADIUS_METERS = 50;
+
 const MapScreen: React.FC = () => {
   const [selectedStyle, setSelectedStyle] = useState(MAP_STYLES[0].url);
   const [currentPosition, setCurrentPosition] = useState<LngLat | null>(null);
@@ -62,6 +64,7 @@ const MapScreen: React.FC = () => {
   const [layerDialogVisible, setLayerDialogVisible] = useState(false);
 
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isNearStop, setIsNearStop] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [nextLegGeo, setNextLegGeo] =
     useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
@@ -108,12 +111,12 @@ const MapScreen: React.FC = () => {
     try {
       const response = await fetch(
         `https://api.mapbox.com/geocoding/v5/mapbox.places/${coords[0]},${coords[1]}.json?` +
-        new URLSearchParams({
-          access_token: MAPBOX_PUBLIC_TOKEN ?? "",
-          types: "address,poi",
-          limit: "1",
-          language: "en",
-        }).toString()
+          new URLSearchParams({
+            access_token: MAPBOX_PUBLIC_TOKEN ?? "",
+            types: "address,poi",
+            limit: "1",
+            language: "en",
+          }).toString()
       );
 
       const result = await response.json();
@@ -234,8 +237,6 @@ const MapScreen: React.FC = () => {
 
     setStopInput("");
     setStopSuggestions([]);
-
-    cameraRef.current?.flyTo(coords, 500);
   };
 
   const handleRemoveStop = (id: string) => {
@@ -257,21 +258,18 @@ const MapScreen: React.FC = () => {
     setIsNavigating(true);
     setActiveIndex(idx);
 
-    cameraRef.current?.setCamera({ pitch: 60, animationDuration: 300 });
-
     const { geometry } = await fetchRouteLeg(
       currentPosition,
       routes[idx].coords,
       { overview: "full" }
     );
 
-    if (geometry) {
+    if (geometry)
       setNextLegGeo({
         type: "Feature",
         geometry,
         properties: {},
       });
-    }
   };
 
   const completeCurrentStop = async (status: StopStatus) => {
@@ -288,7 +286,11 @@ const MapScreen: React.FC = () => {
       setActiveIndex(null);
       setNextLegGeo(null);
 
-      cameraRef.current?.setCamera({ pitch: 0, animationDuration: 300 });
+      cameraRef.current?.setCamera({
+        pitch: 0,
+        heading: 0,
+        animationDuration: 500,
+      });
 
       return;
     }
@@ -296,8 +298,10 @@ const MapScreen: React.FC = () => {
     setActiveIndex(nextIdx);
 
     if (currentPosition) {
+      const fromCoords = routes[activeIndex].coords ?? currentPosition;
+
       const { geometry } = await fetchRouteLeg(
-        currentPosition,
+        fromCoords,
         routes[nextIdx].coords,
         { overview: "full" }
       );
@@ -340,6 +344,19 @@ const MapScreen: React.FC = () => {
             const next: LngLat = [pos.coords.longitude, pos.coords.latitude];
             setCurrentPosition(next);
             reverseGeocode(next);
+
+            if (isNavigating && activeIndex != null && routes[activeIndex]) {
+              const currentStop = routes[activeIndex];
+              const distance = haversineMeters(next, currentStop.coords);
+
+              if (distance < DELIVERY_RADIUS_METERS) {
+                if (!isNearStop) setIsNearStop(true);
+              } else {
+                if (isNearStop) setIsNearStop(false);
+              }
+            } else if (isNearStop) {
+              setIsNearStop(false);
+            }
           }}
         />
         <MapboxGL.Camera
@@ -407,7 +424,7 @@ const MapScreen: React.FC = () => {
         {showPanel ? (
           <IconButton icon="chevron-up" size={24} onPress={handleClosePanel} />
         ) : (
-          <IconButton icon="menu" size={24} onPress={() => { }} />
+          <IconButton icon="menu" size={24} onPress={() => {}} />
         )}
         <TextInput
           ref={inputRef}
@@ -419,7 +436,7 @@ const MapScreen: React.FC = () => {
           autoCapitalize="none"
           style={styles.stopInputField}
         />
-        <IconButton icon="camera" size={24} onPress={() => { }} />
+        <IconButton icon="camera" size={24} onPress={() => {}} />
       </View>
       {showPanel && (
         <View
@@ -483,8 +500,8 @@ const MapScreen: React.FC = () => {
                               item.status === "delivered"
                                 ? "check-circle"
                                 : item.status === "canceled"
-                                  ? "close-circle"
-                                  : "map-marker"
+                                ? "close-circle"
+                                : "map-marker"
                             }
                           />
                         )}
@@ -522,6 +539,7 @@ const MapScreen: React.FC = () => {
                   <Button
                     mode="contained"
                     loading={optimizingMode === "close"}
+                    disabled={isNavigating}
                     onPress={() => optimizeRoute("close")}
                     style={styles.optimizeBtn}
                   >
@@ -530,6 +548,7 @@ const MapScreen: React.FC = () => {
                   <Button
                     mode="contained"
                     loading={optimizingMode === "far"}
+                    disabled={isNavigating}
                     onPress={() => optimizeRoute("far")}
                     style={styles.optimizeBtn}
                   >
@@ -551,8 +570,9 @@ const MapScreen: React.FC = () => {
           <View style={styles.tripContent}>
             <Text style={styles.tripTitle}>
               {isNavigating && activeIndex != null
-                ? `${currentAddress ?? "Current"} → ${routes[activeIndex]?.name ?? "Next"
-                }`
+                ? `${currentAddress ?? "Current"} → ${
+                    routes[activeIndex]?.name ?? "Next"
+                  }`
                 : currentAddress ?? "Current location"}
             </Text>
             {isNavigating && activeIndex != null && (
@@ -574,19 +594,20 @@ const MapScreen: React.FC = () => {
               Start Go
             </Button>
           ) : (
-            <View style={styles.tripActions}>
-              <Text>delivered</Text>
-              <IconButton
-                icon="check"
-                mode="contained"
-                onPress={() => completeCurrentStop("delivered")}
-              />
-              <IconButton
-                icon="close"
-                mode="contained"
-                onPress={() => completeCurrentStop("canceled")}
-              />
-            </View>
+            isNearStop && (
+              <View style={styles.tripActions}>
+                <IconButton
+                  icon="check"
+                  mode="contained"
+                  onPress={() => completeCurrentStop("delivered")}
+                />
+                <IconButton
+                  icon="close"
+                  mode="contained"
+                  onPress={() => completeCurrentStop("canceled")}
+                />
+              </View>
+            )
           )}
         </View>
       )}
