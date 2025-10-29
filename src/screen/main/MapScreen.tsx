@@ -1,4 +1,5 @@
 import MapboxGL, { UserTrackingMode } from "@rnmapbox/maps";
+import * as Location from "expo-location";
 import React, { useEffect, useRef, useState } from "react";
 import { Keyboard, StyleSheet, View } from "react-native";
 import DraggableFlatList, {
@@ -76,6 +77,18 @@ const MapScreen: React.FC = () => {
 
   useEffect(() => {
     (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+
+      if (status !== "granted") {
+        console.warn("Permission to access location was denied");
+
+        return;
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
       if (stopInput.length < 3) {
         setStopSuggestions([]);
 
@@ -86,7 +99,17 @@ const MapScreen: React.FC = () => {
         const response = await fetch(
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
             stopInput
-          )}.json?access_token=${MAPBOX_PUBLIC_TOKEN}&autocomplete=true&limit=15`
+          )}.json?` +
+            new URLSearchParams({
+              access_token: MAPBOX_PUBLIC_TOKEN ?? "",
+              autocomplete: "true",
+              limit: "15",
+              types: "address,poi",
+              language: "en",
+              ...(currentPosition && {
+                proximity: `${currentPosition[0]},${currentPosition[1]}`,
+              }),
+            })
         );
 
         const data = await response.json();
@@ -186,9 +209,7 @@ const MapScreen: React.FC = () => {
         let previousPoint = currentPosition;
 
         for (const stop of sortedStops) {
-          const segment = await fetchRouteLeg(previousPoint, stop.coords, {
-            overview: "false",
-          });
+          const segment = await fetchRouteLeg(previousPoint, stop.coords);
 
           enrichedStops.push({
             ...stop,
@@ -215,13 +236,9 @@ const MapScreen: React.FC = () => {
     let segment: { distance?: number; duration?: number } = {};
 
     if (routes.length > 0) {
-      segment = await fetchRouteLeg(routes[routes.length - 1].coords, coords, {
-        overview: "false",
-      });
+      segment = await fetchRouteLeg(routes[routes.length - 1].coords, coords);
     } else if (currentPosition) {
-      segment = await fetchRouteLeg(currentPosition, coords, {
-        overview: "false",
-      });
+      segment = await fetchRouteLeg(currentPosition, coords);
     }
 
     setRoutes((prevStops) => [
@@ -258,18 +275,32 @@ const MapScreen: React.FC = () => {
     setIsNavigating(true);
     setActiveIndex(idx);
 
-    const { geometry } = await fetchRouteLeg(
-      currentPosition,
-      routes[idx].coords,
-      { overview: "full" }
-    );
+    try {
+      const coordsQuery = `${currentPosition[0]},${currentPosition[1]};${routes[idx].coords[0]},${routes[idx].coords[1]}`;
 
-    if (geometry)
-      setNextLegGeo({
-        type: "Feature",
-        geometry,
-        properties: {},
-      });
+      const response = await fetch(
+        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coordsQuery}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=false&steps=true&access_token=${MAPBOX_PUBLIC_TOKEN}`
+      );
+
+      const data = await response.json();
+      const trip = data?.trips?.[0];
+
+      if (trip?.geometry) {
+        setNextLegGeo({
+          type: "Feature",
+          geometry: trip.geometry,
+          properties: {},
+        });
+
+        cameraRef.current?.setCamera({
+          pitch: 60,
+          zoomLevel: 17,
+          animationDuration: 500,
+        });
+      }
+    } catch (err) {
+      console.error("StartTrip optimization error:", err);
+    }
   };
 
   const completeCurrentStop = async (status: StopStatus) => {
@@ -297,22 +328,25 @@ const MapScreen: React.FC = () => {
 
     setActiveIndex(nextIdx);
 
-    if (currentPosition) {
-      const fromCoords = routes[activeIndex].coords ?? currentPosition;
+    try {
+      const coordsQuery = `${routes[activeIndex].coords[0]},${routes[activeIndex].coords[1]};${routes[nextIdx].coords[0]},${routes[nextIdx].coords[1]}`;
 
-      const { geometry } = await fetchRouteLeg(
-        fromCoords,
-        routes[nextIdx].coords,
-        { overview: "full" }
+      const response = await fetch(
+        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coordsQuery}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=false&steps=true&access_token=${MAPBOX_PUBLIC_TOKEN}`
       );
 
-      if (geometry) {
+      const data = await response.json();
+      const trip = data?.trips?.[0];
+
+      if (trip?.geometry) {
         setNextLegGeo({
           type: "Feature",
-          geometry,
+          geometry: trip.geometry,
           properties: {},
         });
       }
+    } catch (err) {
+      console.error("Next leg optimization error:", err);
     }
   };
 
@@ -323,6 +357,63 @@ const MapScreen: React.FC = () => {
       setShowPanel(false);
       setStopInput("");
       setStopSuggestions([]);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRoutes([]);
+    setRouteGeoJSON(null);
+    setOptimizingMode(null);
+    setIsNavigating(false);
+    setIsNearStop(false);
+    setActiveIndex(null);
+    setNextLegGeo(null);
+
+    if (showPanel) {
+      Keyboard.dismiss();
+      inputRef.current?.blur?.();
+      setShowPanel(false);
+      setStopInput("");
+      setStopSuggestions([]);
+    }
+
+    if (currentPosition && cameraRef.current) {
+      setIsFollowing(false);
+
+      cameraRef.current.setCamera({
+        centerCoordinate: currentPosition,
+        zoomLevel: 17,
+        pitch: 0,
+        heading: 0,
+        animationDuration: 500,
+      });
+
+      await reverseGeocode(currentPosition);
+
+      setTimeout(() => setIsFollowing(true), 1000);
+    } else {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+
+        if (status === "granted") {
+          const loc = await Location.getCurrentPositionAsync({});
+          const next: LngLat = [loc.coords.longitude, loc.coords.latitude];
+
+          setCurrentPosition(next);
+
+          await reverseGeocode(next);
+
+          cameraRef.current?.setCamera({
+            centerCoordinate: next,
+            zoomLevel: 17,
+            pitch: 0,
+            heading: 0,
+            animationDuration: 500,
+          });
+        }
+      } catch (err) {
+        console.warn("Refresh location fetch failed:", err);
+      }
     }
   };
 
@@ -436,7 +527,7 @@ const MapScreen: React.FC = () => {
           autoCapitalize="none"
           style={styles.stopInputField}
         />
-        <IconButton icon="camera" size={24} onPress={() => {}} />
+        <IconButton icon="refresh" size={24} onPress={handleRefresh} />
       </View>
       {showPanel && (
         <View
@@ -640,7 +731,9 @@ const MapScreen: React.FC = () => {
           onPress={() => {
             if (currentPosition && cameraRef.current) {
               setIsFollowing(false);
+
               cameraRef.current.flyTo(currentPosition, 500);
+
               setTimeout(() => setIsFollowing(true), 1000);
             }
           }}

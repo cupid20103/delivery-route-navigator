@@ -9,6 +9,7 @@ export type Route = {
   distance?: number;
   duration?: number;
   status?: StopStatus;
+  legGeometry?: GeoJSON.LineString | null;
 };
 
 export type DirectionsLeg = { distance: number; duration: number };

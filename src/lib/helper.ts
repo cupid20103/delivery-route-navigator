@@ -41,8 +41,7 @@ export const formatDuration = (seconds?: number) => {
 
 export const fetchRouteLeg = async (
   from: LngLat,
-  to: LngLat,
-  options: { overview?: "false" | "full" } = { overview: "false" }
+  to: LngLat
 ): Promise<{
   distance?: number;
   duration?: number;
@@ -59,7 +58,7 @@ export const fetchRouteLeg = async (
     const params = new URLSearchParams({
       access_token: MAPBOX_PUBLIC_TOKEN,
       geometries: "geojson",
-      overview: options.overview ?? "false",
+      overview: "false",
     });
 
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?${params.toString()}`;
