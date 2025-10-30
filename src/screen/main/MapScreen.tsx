@@ -1,7 +1,7 @@
 import MapboxGL, { UserTrackingMode } from "@rnmapbox/maps";
 import * as Location from "expo-location";
 import React, { useEffect, useRef, useState } from "react";
-import { Keyboard, StyleSheet, View } from "react-native";
+import { Keyboard, StyleSheet, TouchableOpacity, View } from "react-native";
 import DraggableFlatList, {
   RenderItemParams,
 } from "react-native-draggable-flatlist";
@@ -44,7 +44,7 @@ const MAP_STYLES = [
   },
 ];
 
-const DELIVERY_RADIUS_METERS = 50;
+const DELIVERY_RADIUS_METERS = 100;
 
 const MapScreen: React.FC = () => {
   const [selectedStyle, setSelectedStyle] = useState(MAP_STYLES[0].url);
@@ -62,6 +62,9 @@ const MapScreen: React.FC = () => {
   const [stopInput, setStopInput] = useState("");
   const [showPanel, setShowPanel] = useState(false);
   const [stopSuggestions, setStopSuggestions] = useState<any[]>([]);
+  const [currentStopDialogVisible, setCurrentStopDialogVisible] =
+    useState(false);
+  const [editedStopName, setEditedStopName] = useState("");
   const [layerDialogVisible, setLayerDialogVisible] = useState(false);
 
   const [isNavigating, setIsNavigating] = useState(false);
@@ -106,6 +109,7 @@ const MapScreen: React.FC = () => {
               limit: "15",
               types: "address,poi",
               language: "en",
+              country: "us",
               ...(currentPosition && {
                 proximity: `${currentPosition[0]},${currentPosition[1]}`,
               }),
@@ -139,6 +143,7 @@ const MapScreen: React.FC = () => {
             types: "address,poi",
             limit: "1",
             language: "en",
+            country: "us",
           }).toString()
       );
 
@@ -417,6 +422,24 @@ const MapScreen: React.FC = () => {
     }
   };
 
+  const openCurrentStopDialog = () => {
+    if (activeIndex == null) return;
+
+    setEditedStopName(routes[activeIndex]?.name || "");
+    setCurrentStopDialogVisible(true);
+  };
+
+  const handleSaveStopName = () => {
+    if (activeIndex == null) return;
+
+    setRoutes((prev) =>
+      prev.map((r, i) =>
+        i === activeIndex ? { ...r, name: editedStopName.trim() || r.name } : r
+      )
+    );
+    setCurrentStopDialogVisible(false);
+  };
+
   return (
     <GestureHandlerRootView style={styles.container}>
       <MapboxGL.MapView
@@ -600,11 +623,13 @@ const MapScreen: React.FC = () => {
                           <View style={styles.panelAction}>
                             <IconButton
                               icon="close"
+                              disabled={isNavigating}
                               onPress={() => handleRemoveStop(item.id)}
                               style={styles.panelIcon}
                             />
                             <IconButton
                               icon="drag"
+                              disabled={isNavigating}
                               onLongPress={drag}
                               style={styles.panelIcon}
                             />
@@ -652,7 +677,9 @@ const MapScreen: React.FC = () => {
         </View>
       )}
       {routes.length > 0 && !showPanel && (
-        <View
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={isNavigating ? openCurrentStopDialog : undefined}
           style={[
             styles.tripCard,
             { backgroundColor: theme.colors.background },
@@ -686,7 +713,7 @@ const MapScreen: React.FC = () => {
             </Button>
           ) : (
             isNearStop && (
-              <View style={styles.tripActions}>
+              <View>
                 <IconButton
                   icon="check"
                   mode="contained"
@@ -700,23 +727,48 @@ const MapScreen: React.FC = () => {
               </View>
             )
           )}
-        </View>
+        </TouchableOpacity>
       )}
       <Portal>
         <Modal
-          visible={layerDialogVisible}
-          onDismiss={() => setLayerDialogVisible(false)}
+          visible={currentStopDialogVisible}
+          onDismiss={() => setCurrentStopDialogVisible(false)}
+          contentContainerStyle={[
+            styles.stopModalContainer,
+            { backgroundColor: theme.colors.background },
+          ]}
         >
-          <View
-            style={[styles.modal, { backgroundColor: theme.colors.background }]}
-          >
-            <Button onPress={() => setSelectedStyle(MAP_STYLES[0].url)}>
-              Default
-            </Button>
-            <Button onPress={() => setSelectedStyle(MAP_STYLES[1].url)}>
-              Satellite
-            </Button>
-          </View>
+          {activeIndex != null && routes[activeIndex] && (
+            <View>
+              <Text variant="titleMedium" style={{ marginBottom: 8 }}>
+                Edit Target Stop
+              </Text>
+              <TextInput
+                label="Stop Name"
+                mode="outlined"
+                value={editedStopName}
+                onChangeText={setEditedStopName}
+                style={{ marginBottom: 12 }}
+              />
+              <Text style={{ opacity: 0.7, marginBottom: 8 }}>
+                {`Estimated: ${formatDuration(
+                  routes[activeIndex].duration
+                )} • ${formatDistance(routes[activeIndex].distance)}`}
+              </Text>
+              <View style={styles.stopModalActions}>
+                <Button mode="contained" onPress={handleSaveStopName}>
+                  Save
+                </Button>
+                <Button
+                  mode="outlined"
+                  textColor={theme.colors.error}
+                  onPress={() => setCurrentStopDialogVisible(false)}
+                >
+                  Cancel
+                </Button>
+              </View>
+            </View>
+          )}
         </Modal>
       </Portal>
       <View style={styles.fabContainer}>
@@ -739,6 +791,25 @@ const MapScreen: React.FC = () => {
           }}
         />
       </View>
+      <Portal>
+        <Modal
+          visible={layerDialogVisible}
+          onDismiss={() => setLayerDialogVisible(false)}
+          contentContainerStyle={[
+            styles.mapModalContainer,
+            { backgroundColor: theme.colors.background },
+          ]}
+        >
+          <View style={styles.mapModalActions}>
+            <Button onPress={() => setSelectedStyle(MAP_STYLES[0].url)}>
+              Default
+            </Button>
+            <Button onPress={() => setSelectedStyle(MAP_STYLES[1].url)}>
+              Satellite
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
     </GestureHandlerRootView>
   );
 };
@@ -786,7 +857,7 @@ const styles = StyleSheet.create({
     bottom: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 4,
     padding: 12,
     borderRadius: 12,
     elevation: 6,
@@ -794,20 +865,33 @@ const styles = StyleSheet.create({
   tripContent: { flex: 1 },
   tripTitle: { fontWeight: "700", marginBottom: 4 },
   tripLabel: { opacity: 0.5, fontSize: 12 },
-  tripActions: { flexDirection: "column", gap: 4 },
-  tripActionBtn: { flex: 1 },
-  modal: {
+  stopModalContainer: {
+    margin: 24,
+    padding: 16,
+    borderRadius: 12,
+    elevation: 6,
+  },
+  stopModalActions: {
     flexDirection: "row",
-    justifyContent: "center",
-    padding: 24,
-    marginHorizontal: 64,
-    borderRadius: 8,
+    justifyContent: "flex-end",
+    gap: 8,
   },
   fabContainer: {
     position: "absolute",
     flexDirection: "column",
     top: 100,
     right: 24,
+  },
+  mapModalContainer: {
+    margin: 36,
+    padding: 16,
+    borderRadius: 12,
+    elevation: 6,
+  },
+  mapModalActions: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
   },
 });
 
