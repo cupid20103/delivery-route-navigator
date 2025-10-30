@@ -1,7 +1,13 @@
 import MapboxGL, { UserTrackingMode } from "@rnmapbox/maps";
 import * as Location from "expo-location";
 import React, { useEffect, useRef, useState } from "react";
-import { Keyboard, StyleSheet, TouchableOpacity, View } from "react-native";
+import {
+  FlatList,
+  Keyboard,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import DraggableFlatList, {
   RenderItemParams,
 } from "react-native-draggable-flatlist";
@@ -107,7 +113,6 @@ const MapScreen: React.FC = () => {
               access_token: MAPBOX_PUBLIC_TOKEN ?? "",
               autocomplete: "true",
               limit: "15",
-              types: "address,poi",
               language: "en",
               country: "us",
               ...(currentPosition && {
@@ -140,7 +145,6 @@ const MapScreen: React.FC = () => {
         `https://api.mapbox.com/geocoding/v5/mapbox.places/${coords[0]},${coords[1]}.json?` +
           new URLSearchParams({
             access_token: MAPBOX_PUBLIC_TOKEN ?? "",
-            types: "address,poi",
             limit: "1",
             language: "en",
             country: "us",
@@ -566,22 +570,20 @@ const MapScreen: React.FC = () => {
             left={(props) => <List.Icon {...props} icon="crosshairs-gps" />}
           />
           {stopInput.trim().length >= 3 ? (
-            <View>
-              <Text variant="labelLarge" style={styles.panelTitle}>
-                Suggestions
-              </Text>
-              {stopSuggestions.length > 0 ? (
-                stopSuggestions.map((item: any) => (
+            <View style={{ flex: 1 }}>
+              <FlatList
+                data={stopSuggestions}
+                keyExtractor={(item) => item.id || item.place_name}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+                renderItem={({ item }) => (
                   <List.Item
-                    key={item.id || item.place_name}
                     title={item.place_name}
                     left={(props) => <List.Icon {...props} icon="magnify" />}
                     onPress={() => handleSelectStop(item)}
                   />
-                ))
-              ) : (
-                <Text style={styles.panelHint}>No results yet…</Text>
-              )}
+                )}
+              />
             </View>
           ) : (
             <View>

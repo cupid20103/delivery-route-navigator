@@ -19,7 +19,10 @@
       "environment": "preview",
       "developmentClient": false,
       "distribution": "internal",
-      "channel": "staging"
+      "channel": "staging",
+      "android": {
+        "buildType": "apk"
+      }
     },
     "production": {
       "environment": "production",
