@@ -35,7 +35,7 @@ const App: React.FC = () => {
       </Text>
       <Button
         mode="contained"
-        onPress={() => router.push(!user ? "/(auth)/login" : "/map")}
+        onPress={() => router.push(!user ? "/(auth)/login" : "/(main)/map")}
       >
         Get Started
       </Button>
@@ -49,11 +49,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 24,
-  },
-  logo: {
-    width: 150,
-    height: 20,
-    marginBottom: 24,
   },
   title: {
     textAlign: "center",

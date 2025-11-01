@@ -81,3 +81,31 @@ export const fetchRouteLeg = async (
     return {};
   }
 };
+
+export const fetchOptimizedLegGeometry = async (
+  from: LngLat,
+  to: LngLat
+): Promise<GeoJSON.LineString | null> => {
+  try {
+    if (!MAPBOX_PUBLIC_TOKEN) {
+      console.warn(
+        "Missing MAPBOX_PUBLIC_TOKEN; fetchOptimizedLegGeometry skipped."
+      );
+
+      return null;
+    }
+
+    const coords = `${from[0]},${from[1]};${to[0]},${to[1]}`;
+
+    const url = `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coords}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=false&steps=true&access_token=${MAPBOX_PUBLIC_TOKEN}`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    return data?.trips?.[0]?.geometry ?? null;
+  } catch (error) {
+    console.error("fetchOptimizedLegGeometry error:", error);
+
+    return null;
+  }
+};

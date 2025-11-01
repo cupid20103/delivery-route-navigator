@@ -27,6 +27,7 @@ import CurrentMarker from "@/components/ui/CurrentMarker";
 import StopMarker from "@/components/ui/StopMarker";
 import { MAPBOX_PUBLIC_TOKEN } from "@/lib/constant";
 import {
+  fetchOptimizedLegGeometry,
   fetchRouteLeg,
   formatDistance,
   formatDuration,
@@ -63,7 +64,7 @@ const MapScreen: React.FC = () => {
     useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
 
   const [optimizingMode, setOptimizingMode] = useState<"close" | "far" | null>(
-    null
+    null,
   );
   const [stopInput, setStopInput] = useState("");
   const [showPanel, setShowPanel] = useState(false);
@@ -107,7 +108,7 @@ const MapScreen: React.FC = () => {
       try {
         const response = await fetch(
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-            stopInput
+            stopInput,
           )}.json?` +
             new URLSearchParams({
               access_token: MAPBOX_PUBLIC_TOKEN ?? "",
@@ -118,7 +119,7 @@ const MapScreen: React.FC = () => {
               ...(currentPosition && {
                 proximity: `${currentPosition[0]},${currentPosition[1]}`,
               }),
-            })
+            }),
         );
 
         const data = await response.json();
@@ -128,8 +129,8 @@ const MapScreen: React.FC = () => {
             !routes.some(
               (stop) =>
                 stop.coords[0] === item.center[0] &&
-                stop.coords[1] === item.center[1]
-            )
+                stop.coords[1] === item.center[1],
+            ),
         );
 
         setStopSuggestions(uniqueSuggestions);
@@ -137,6 +138,7 @@ const MapScreen: React.FC = () => {
         console.error("Geocoding error:", err);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopInput]);
 
   const reverseGeocode = async (coords: LngLat) => {
@@ -148,7 +150,7 @@ const MapScreen: React.FC = () => {
             limit: "1",
             language: "en",
             country: "us",
-          }).toString()
+          }).toString(),
       );
 
       const result = await response.json();
@@ -163,11 +165,10 @@ const MapScreen: React.FC = () => {
       if (feature.place_type?.includes("address") && houseNumber)
         label = `${houseNumber} ${feature.text}`;
 
-      const context: Array<{ id: string; text: string }> =
-        feature.context ?? [];
+      const context: { id: string; text: string }[] = feature.context ?? [];
 
       const neighborhood = context.find((c) =>
-        c.id.startsWith("neighborhood")
+        c.id.startsWith("neighborhood"),
       )?.text;
 
       const city =
@@ -201,7 +202,7 @@ const MapScreen: React.FC = () => {
 
     try {
       const response = await fetch(
-        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coordsQuery}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=true&access_token=${MAPBOX_PUBLIC_TOKEN}`
+        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coordsQuery}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=true&access_token=${MAPBOX_PUBLIC_TOKEN}`,
       );
 
       const data: OptimizationResponse = await response.json();
@@ -271,7 +272,7 @@ const MapScreen: React.FC = () => {
 
   const getNextPendingIndex = (from = 0) =>
     routes.findIndex(
-      (r, idx) => idx >= from && (r.status ?? "pending") === "pending"
+      (r, idx) => idx >= from && (r.status ?? "pending") === "pending",
     );
 
   const startTrip = async () => {
@@ -284,31 +285,19 @@ const MapScreen: React.FC = () => {
     setIsNavigating(true);
     setActiveIndex(idx);
 
-    try {
-      const coordsQuery = `${currentPosition[0]},${currentPosition[1]};${routes[idx].coords[0]},${routes[idx].coords[1]}`;
+    const geometry = await fetchOptimizedLegGeometry(
+      currentPosition,
+      routes[idx].coords,
+    );
 
-      const response = await fetch(
-        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coordsQuery}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=false&steps=true&access_token=${MAPBOX_PUBLIC_TOKEN}`
-      );
+    if (geometry) {
+      setNextLegGeo({ type: "Feature", geometry, properties: {} });
 
-      const data = await response.json();
-      const trip = data?.trips?.[0];
-
-      if (trip?.geometry) {
-        setNextLegGeo({
-          type: "Feature",
-          geometry: trip.geometry,
-          properties: {},
-        });
-
-        cameraRef.current?.setCamera({
-          pitch: 60,
-          zoomLevel: 17,
-          animationDuration: 500,
-        });
-      }
-    } catch (err) {
-      console.error("StartTrip optimization error:", err);
+      cameraRef.current?.setCamera({
+        pitch: 60,
+        zoomLevel: 17,
+        animationDuration: 500,
+      });
     }
   };
 
@@ -316,7 +305,7 @@ const MapScreen: React.FC = () => {
     if (activeIndex == null) return;
 
     setRoutes((prev) =>
-      prev.map((s, i) => (i === activeIndex ? { ...s, status } : s))
+      prev.map((s, i) => (i === activeIndex ? { ...s, status } : s)),
     );
 
     const nextIdx = getNextPendingIndex(activeIndex + 1);
@@ -337,25 +326,13 @@ const MapScreen: React.FC = () => {
 
     setActiveIndex(nextIdx);
 
-    try {
-      const coordsQuery = `${routes[activeIndex].coords[0]},${routes[activeIndex].coords[1]};${routes[nextIdx].coords[0]},${routes[nextIdx].coords[1]}`;
+    const geometry = await fetchOptimizedLegGeometry(
+      routes[activeIndex].coords,
+      routes[nextIdx].coords,
+    );
 
-      const response = await fetch(
-        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coordsQuery}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=false&steps=true&access_token=${MAPBOX_PUBLIC_TOKEN}`
-      );
-
-      const data = await response.json();
-      const trip = data?.trips?.[0];
-
-      if (trip?.geometry) {
-        setNextLegGeo({
-          type: "Feature",
-          geometry: trip.geometry,
-          properties: {},
-        });
-      }
-    } catch (err) {
-      console.error("Next leg optimization error:", err);
+    if (geometry) {
+      setNextLegGeo({ type: "Feature", geometry, properties: {} });
     }
   };
 
@@ -378,13 +355,7 @@ const MapScreen: React.FC = () => {
     setActiveIndex(null);
     setNextLegGeo(null);
 
-    if (showPanel) {
-      Keyboard.dismiss();
-      inputRef.current?.blur?.();
-      setShowPanel(false);
-      setStopInput("");
-      setStopSuggestions([]);
-    }
+    handleClosePanel();
 
     if (currentPosition && cameraRef.current) {
       setIsFollowing(false);
@@ -438,8 +409,8 @@ const MapScreen: React.FC = () => {
 
     setRoutes((prev) =>
       prev.map((r, i) =>
-        i === activeIndex ? { ...r, name: editedStopName.trim() || r.name } : r
-      )
+        i === activeIndex ? { ...r, name: editedStopName.trim() || r.name } : r,
+      ),
     );
     setCurrentStopDialogVisible(false);
   };
@@ -542,7 +513,11 @@ const MapScreen: React.FC = () => {
         {showPanel ? (
           <IconButton icon="chevron-up" size={24} onPress={handleClosePanel} />
         ) : (
-          <IconButton icon="menu" size={24} onPress={() => {}} />
+          <IconButton
+            icon="menu"
+            size={24}
+            onPress={() => setShowPanel(true)}
+          />
         )}
         <TextInput
           ref={inputRef}
@@ -607,7 +582,7 @@ const MapScreen: React.FC = () => {
                       <List.Item
                         title={item.name}
                         description={`${formatDuration(
-                          item.duration
+                          item.duration,
                         )} • ${formatDistance(item.distance)}`}
                         left={(props) => (
                           <List.Icon
@@ -616,8 +591,8 @@ const MapScreen: React.FC = () => {
                               item.status === "delivered"
                                 ? "check-circle"
                                 : item.status === "canceled"
-                                ? "close-circle"
-                                : "map-marker"
+                                  ? "close-circle"
+                                  : "map-marker"
                             }
                           />
                         )}
@@ -693,12 +668,12 @@ const MapScreen: React.FC = () => {
                 ? `${currentAddress ?? "Current"} → ${
                     routes[activeIndex]?.name ?? "Next"
                   }`
-                : currentAddress ?? "Current location"}
+                : (currentAddress ?? "Current location")}
             </Text>
             {isNavigating && activeIndex != null && (
               <Text style={styles.tripLabel}>
                 {`${formatDuration(
-                  routes[activeIndex]?.duration
+                  routes[activeIndex]?.duration,
                 )} • ${formatDistance(routes[activeIndex]?.distance)}`}
               </Text>
             )}
@@ -754,7 +729,7 @@ const MapScreen: React.FC = () => {
               />
               <Text style={{ opacity: 0.7, marginBottom: 8 }}>
                 {`Estimated: ${formatDuration(
-                  routes[activeIndex].duration
+                  routes[activeIndex].duration,
                 )} • ${formatDistance(routes[activeIndex].distance)}`}
               </Text>
               <View style={styles.stopModalActions}>

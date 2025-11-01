@@ -19,7 +19,7 @@ const Wrapper: React.FC<WrapperProps> = ({
         <ScrollView
           style={[
             styles.scrollView,
-            { backgroundColor: theme.colors.onBackground },
+            { backgroundColor: theme.colors.background },
             contentStyle,
           ]}
           contentContainerStyle={{ flexGrow: 1 }}
@@ -31,7 +31,7 @@ const Wrapper: React.FC<WrapperProps> = ({
         <View
           style={[
             styles.content,
-            { backgroundColor: theme.colors.onBackground },
+            { backgroundColor: theme.colors.background },
             contentStyle,
           ]}
         >

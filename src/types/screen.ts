@@ -11,8 +11,6 @@ export type Route = {
   status?: StopStatus;
 };
 
-export type DirectionsLeg = { distance: number; duration: number };
-
 export type OptimizationTrip = {
   geometry: GeoJSON.LineString;
 };
