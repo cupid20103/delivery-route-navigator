@@ -1,50 +1,99 @@
-# Welcome to your Expo app 👋
+# StraightAway
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A delivery-route navigation app for drivers. Add your stops, optimize the order, then run the route one stop at a time, marking each as delivered or canceled as you go.
 
-## Get started
+Built with [Expo](https://expo.dev) and [Mapbox](https://www.mapbox.com/).
 
-1. Install dependencies
+## Features
 
-   ```bash
-   npm install
-   ```
+- **Stop search:** address autocomplete powered by the Mapbox Geocoding API, biased to your current location.
+- **Route optimization:** order stops `Close → Far` or `Far → Close` using the Mapbox Optimized Trips API.
+- **Turn-by-turn legs:** navigate to the active stop with a dashed route line and a tilted, follow-me camera.
+- **Delivery tracking:** automatic proximity detection (within 100 m) reveals the delivered / canceled actions for the current stop.
+- **Reorder & edit:** drag to reorder stops, rename the active stop, and refresh to start over.
+- **Map styles:** switch between Streets and Satellite.
+- **Local auth:** email/password sign-up and login stored on-device via Expo SecureStore.
 
-2. Start the app
+## Tech stack
 
-   ```bash
-   npx expo start
-   ```
+- **Expo SDK 54** with [expo-router](https://docs.expo.dev/router/introduction) (file-based routing, typed routes, React Compiler)
+- **React Native 0.81 / React 19** (new architecture enabled)
+- **[react-native-paper](https://callstack.github.io/react-native-paper/)** for Material UI and theming
+- **[@rnmapbox/maps](https://github.com/rnmapbox/maps)** for the map and Mapbox APIs
+- **expo-location**, **expo-secure-store**, **react-native-draggable-flatlist**
+- **TypeScript** (strict)
 
-In the output, you'll find options to open the app in a
+## Getting started
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Prerequisites
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- Node.js and [Yarn](https://yarnpkg.com/)
+- A [Mapbox](https://account.mapbox.com/) account with a public token and a downloads token
+- A development build is required; `@rnmapbox/maps` does not run in Expo Go.
 
-## Get a fresh project
-
-When you're ready, run:
+### 1. Install dependencies
 
 ```bash
-npm run reset-project
+yarn install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 2. Configure environment
 
-## Learn more
+Create a `.env` file in the project root:
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+APP_ENV=development
+MAPBOX_PUBLIC_TOKEN=pk.your_public_token
+MAPBOX_DOWNLOADS_TOKEN=sk.your_secret_downloads_token
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+- `MAPBOX_PUBLIC_TOKEN` is read at runtime (geocoding, directions, optimization).
+- `MAPBOX_DOWNLOADS_TOKEN` is used by the `@rnmapbox/maps` config plugin to fetch the native SDK at build time.
 
-## Join the community
+### 3. Run
 
-Join our community of developers creating universal apps.
+```bash
+yarn start        # start the dev server
+yarn android      # build & run on Android
+yarn ios          # build & run on iOS
+yarn web          # run in the browser
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Scripts
+
+| Command | Description |
+| --- | --- |
+| `yarn start` | Start the Expo dev server |
+| `yarn android` | Run on an Android device/emulator |
+| `yarn ios` | Run on an iOS simulator/device |
+| `yarn web` | Run the web build |
+| `yarn lint` | Lint the project with ESLint |
+
+## Project structure
+
+```
+src/
+  app/                 Expo Router routes (thin wrappers around screens)
+    (auth)/            login, signup
+    (main)/            map
+    _layout.tsx        Providers (Paper, Auth, SafeArea) + Slot
+    index.tsx          Landing screen
+  screen/              Screen implementations
+    auth/  main/
+  components/
+    layout/            Wrapper
+    ui/                CurrentMarker, StopMarker
+  contexts/            AuthContext
+  lib/                 constant, helper (geo math + Mapbox fetches), storage
+  types/               Shared types
+```
+
+Path alias `@/*` resolves to `src/*`.
+
+## Builds
+
+EAS Build profiles are defined in [`eas.json`](./eas.json): `development`, `ios-simulator`, `preview`, and `production`.
+
+```bash
+eas build --profile development --platform android
+```
