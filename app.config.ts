@@ -2,12 +2,12 @@ import { ConfigContext, ExpoConfig } from "expo/config";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "frechette_oil_navf",
-  slug: "frechette_oil_navf",
+  name: "delivery-route-navigator",
+  slug: "delivery-route-navigator",
   version: "1.0.0",
   orientation: "portrait",
   icon: "./src/assets/images/icon.png",
-  scheme: "frechetteoilnavf",
+  scheme: "deliveryroutenavigator",
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
   ios: {
@@ -25,7 +25,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
-    package: "com.cupid2417.frechette_oil_navf",
+    package: "com.cupid2417.delivery_route_navigator",
   },
   web: {
     output: "static",

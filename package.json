@@ -1,5 +1,5 @@
 {
-  "name": "frechette_oil_navf",
+  "name": "delivery-route-navigator",
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
