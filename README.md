@@ -1,4 +1,4 @@
-# StraightAway
+# Delivery Route Navigator
 
 A delivery-route navigation app for drivers. Add your stops, optimize the order, then run the route one stop at a time, marking each as delivered or canceled as you go.
 
