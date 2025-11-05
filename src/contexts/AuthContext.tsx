@@ -60,6 +60,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (password !== savedUser.password)
       return { success: false, message: "Invalid password" };
 
+    setUser(savedUser);
     return { success: true, message: "Login successful" };
   };
 
