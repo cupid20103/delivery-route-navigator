@@ -48,7 +48,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const login = async (
     email: string,
-    password: string
+    password: string,
   ): Promise<AuthResult> => {
     const savedUser = await loadData("user");
 
@@ -66,14 +66,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const register = async (
     email: string,
-    password: string
+    password: string,
   ): Promise<AuthResult> => {
     const savedUser = await loadData("user");
 
     if (savedUser && savedUser.email === email)
       return { success: false, message: "Email already registered" };
 
-    const newUser: User = { email, password: password };
+    const newUser: User = { email, password };
 
     await saveData("user", newUser);
 

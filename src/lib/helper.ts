@@ -1,5 +1,5 @@
+import { MAPBOX_PUBLIC_TOKEN } from "@/lib/constant";
 import { LngLat } from "@/types/screen";
-import { MAPBOX_PUBLIC_TOKEN } from "./constant";
 
 const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
 
@@ -41,7 +41,7 @@ export const formatDuration = (seconds?: number) => {
 
 export const fetchRouteLeg = async (
   from: LngLat,
-  to: LngLat
+  to: LngLat,
 ): Promise<{
   distance?: number;
   duration?: number;
@@ -84,7 +84,7 @@ export const fetchRouteLeg = async (
 
 export const fetchOptimizedLegGeometry = async (
   from: LngLat,
-  to: LngLat
+  to: LngLat,
 ): Promise<GeoJSON.LineString | null> => {
   try {
     if (!MAPBOX_PUBLIC_TOKEN) {
