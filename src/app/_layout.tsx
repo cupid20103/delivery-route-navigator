@@ -1,16 +1,12 @@
 import { Slot, SplashScreen } from "expo-router";
 import { useEffect } from "react";
-import { StatusBar, useColorScheme } from "react-native";
+import { StatusBar } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Provider } from "react-native-paper";
 
 const RootLayout: React.FC = () => {
-  const colorScheme = useColorScheme();
-
-  const barStyle = colorScheme === "dark" ? "light-content" : "dark-content";
-
   useEffect(() => {
     SplashScreen.hideAsync();
   }, []);
@@ -19,7 +15,7 @@ const RootLayout: React.FC = () => {
     <Provider>
       <AuthProvider>
         <SafeAreaProvider>
-          <StatusBar barStyle={barStyle} />
+          <StatusBar barStyle="dark-content" />
           <Slot screenOptions={{ headerShown: false }} />
         </SafeAreaProvider>
       </AuthProvider>

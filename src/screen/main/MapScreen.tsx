@@ -1,10 +1,12 @@
 import MapboxGL, { UserTrackingMode } from "@rnmapbox/maps";
 import * as Location from "expo-location";
+import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
   Keyboard,
   StyleSheet,
+  TextInput as RNTextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -25,6 +27,7 @@ import {
 
 import CurrentMarker from "@/components/ui/CurrentMarker";
 import StopMarker from "@/components/ui/StopMarker";
+import { useAuth } from "@/contexts/AuthContext";
 import { MAPBOX_PUBLIC_TOKEN } from "@/lib/constant";
 import {
   fetchOptimizedLegGeometry,
@@ -33,12 +36,7 @@ import {
   formatDuration,
   haversineMeters,
 } from "@/lib/helper";
-import {
-  LngLat,
-  OptimizationResponse,
-  Route,
-  StopStatus,
-} from "@/types/screen";
+import { GeocodeFeature, LngLat, Route, StopStatus } from "@/types/screen";
 
 MapboxGL.setAccessToken(MAPBOX_PUBLIC_TOKEN);
 
@@ -68,7 +66,7 @@ const MapScreen: React.FC = () => {
   );
   const [stopInput, setStopInput] = useState("");
   const [showPanel, setShowPanel] = useState(false);
-  const [stopSuggestions, setStopSuggestions] = useState<any[]>([]);
+  const [stopSuggestions, setStopSuggestions] = useState<GeocodeFeature[]>([]);
   const [currentStopDialogVisible, setCurrentStopDialogVisible] =
     useState(false);
   const [editedStopName, setEditedStopName] = useState("");
@@ -82,8 +80,11 @@ const MapScreen: React.FC = () => {
 
   const theme = useTheme();
 
+  const { logout } = useAuth();
+
   const cameraRef = useRef<MapboxGL.Camera>(null);
-  const inputRef = useRef<any>(null);
+  const inputRef = useRef<RNTextInput>(null);
+  const lastGeocodeRef = useRef<{ coords: LngLat; time: number } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -124,8 +125,10 @@ const MapScreen: React.FC = () => {
 
         const data = await response.json();
 
-        const uniqueSuggestions = (data.features || []).filter(
-          (item: any) =>
+        const features: GeocodeFeature[] = data.features ?? [];
+
+        const uniqueSuggestions = features.filter(
+          (item) =>
             !routes.some(
               (stop) =>
                 stop.coords[0] === item.center[0] &&
@@ -154,11 +157,11 @@ const MapScreen: React.FC = () => {
       );
 
       const result = await response.json();
-      const feature = result?.features?.[0];
+      const feature: GeocodeFeature | undefined = result?.features?.[0];
 
       if (!feature) return;
 
-      let label = feature.text as string;
+      let label = feature.text;
 
       const houseNumber = feature.address || feature.properties?.address;
 
@@ -201,35 +204,34 @@ const MapScreen: React.FC = () => {
       .join(";");
 
     try {
+      const params = new URLSearchParams({
+        access_token: MAPBOX_PUBLIC_TOKEN ?? "",
+        geometries: "geojson",
+        overview: "full",
+      });
+
       const response = await fetch(
-        `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coordsQuery}?geometries=geojson&overview=full&source=first&destination=last&roundtrip=true&access_token=${MAPBOX_PUBLIC_TOKEN}`,
+        `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsQuery}?${params.toString()}`,
       );
 
-      const data: OptimizationResponse = await response.json();
+      const data = await response.json();
+      const route = data?.routes?.[0];
 
-      if (data.trips && data.trips.length > 0) {
+      if (route) {
         setRouteGeoJSON({
           type: "Feature",
-          geometry: data.trips[0].geometry,
+          geometry: route.geometry,
           properties: {},
         });
 
-        const enrichedStops: Route[] = [];
+        const legs = route.legs ?? [];
 
-        let previousPoint = currentPosition;
-
-        for (const stop of sortedStops) {
-          const segment = await fetchRouteLeg(previousPoint, stop.coords);
-
-          enrichedStops.push({
-            ...stop,
-            distance: segment.distance,
-            duration: segment.duration,
-            status: "pending",
-          });
-
-          previousPoint = stop.coords;
-        }
+        const enrichedStops: Route[] = sortedStops.map((stop, i) => ({
+          ...stop,
+          distance: legs[i]?.distance,
+          duration: legs[i]?.duration,
+          status: "pending",
+        }));
 
         setRoutes(enrichedStops);
       }
@@ -240,7 +242,7 @@ const MapScreen: React.FC = () => {
     }
   };
 
-  const handleSelectStop = async (item: any) => {
+  const handleSelectStop = async (item: GeocodeFeature) => {
     const coords: LngLat = item.center;
 
     let segment: { distance?: number; duration?: number } = {};
@@ -268,6 +270,12 @@ const MapScreen: React.FC = () => {
 
   const handleRemoveStop = (id: string) => {
     setRoutes((prevStops) => prevStops.filter((stop) => stop.id !== id));
+  };
+
+  const handleLogout = async () => {
+    await logout();
+
+    router.replace("/(auth)/login");
   };
 
   const getNextPendingIndex = (from = 0) =>
@@ -432,7 +440,18 @@ const MapScreen: React.FC = () => {
 
             const next: LngLat = [pos.coords.longitude, pos.coords.latitude];
             setCurrentPosition(next);
-            reverseGeocode(next);
+
+            const last = lastGeocodeRef.current;
+            const now = Date.now();
+
+            if (
+              !last ||
+              now - last.time > 15000 ||
+              haversineMeters(next, last.coords) > 50
+            ) {
+              lastGeocodeRef.current = { coords: next, time: now };
+              reverseGeocode(next);
+            }
 
             if (isNavigating && activeIndex != null && routes[activeIndex]) {
               const currentStop = routes[activeIndex];
@@ -538,7 +557,10 @@ const MapScreen: React.FC = () => {
             { backgroundColor: theme.colors.background },
           ]}
         >
-          <Text variant="titleMedium">Route</Text>
+          <View style={styles.panelHeader}>
+            <Text variant="titleMedium">Route</Text>
+            <IconButton icon="logout" size={20} onPress={handleLogout} />
+          </View>
           <List.Item
             title="Current location"
             description={currentAddress || "Locating…"}
@@ -819,6 +841,11 @@ const styles = StyleSheet.create({
   stopInputField: {
     flex: 1,
     paddingHorizontal: 12,
+  },
+  panelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   panelTitle: { marginBottom: 6, opacity: 0.7 },
   panelHint: { opacity: 0.5 },

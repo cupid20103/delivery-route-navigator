@@ -7,7 +7,7 @@ Built with [Expo](https://expo.dev) and [Mapbox](https://www.mapbox.com/).
 ## Features
 
 - **Stop search:** address autocomplete powered by the Mapbox Geocoding API, biased to your current location.
-- **Route optimization:** order stops `Close → Far` or `Far → Close` using the Mapbox Optimized Trips API.
+- **Route ordering:** sort stops `Close → Far` or `Far → Close` by distance, with the driving route drawn via the Mapbox Directions API.
 - **Turn-by-turn legs:** navigate to the active stop with a dashed route line and a tilted, follow-me camera.
 - **Delivery tracking:** automatic proximity detection (within 100 m) reveals the delivered / canceled actions for the current stop.
 - **Reorder & edit:** drag to reorder stops, rename the active stop, and refresh to start over.

@@ -11,11 +11,13 @@ export type Route = {
   status?: StopStatus;
 };
 
-export type OptimizationTrip = {
-  geometry: GeoJSON.LineString;
-};
-
-export type OptimizationResponse = {
-  code: string;
-  trips: OptimizationTrip[];
+export type GeocodeFeature = {
+  id: string;
+  place_name: string;
+  center: LngLat;
+  text: string;
+  address?: string;
+  place_type?: string[];
+  properties?: { address?: string };
+  context?: { id: string; text: string }[];
 };
